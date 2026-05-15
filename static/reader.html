@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZeroDrop Reader - Offline QR Decryption</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+            text-align: center;
+        }
+
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .scanner-container {
+            position: relative;
+            width: 100%;
+            height: 300px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .scan-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border: 2px solid #667eea;
+            box-shadow: inset 0 0 20px rgba(102, 126, 234, 0.3);
+            pointer-events: none;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 120px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            resize: vertical;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .result {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .result.success {
+            display: block;
+            border-color: #4caf50;
+            background: #f1f8f4;
+        }
+
+        .result.error {
+            display: block;
+            border-color: #f44336;
+            background: #ffebee;
+        }
+
+        .result-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .result.success .result-title {
+            color: #2e7d32;
+        }
+
+        .result.error .result-title {
+            color: #c62828;
+        }
+
+        .result-content {
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+        }
+
+        .fingerprint {
+            font-size: 12px;
+            color: #666;
+            margin-top: 10px;
+            text-align: center;
+        }
+
+        .fingerprint code {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .info {
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+            margin-top: 20px;
+            line-height: 1.5;
+        }
+
+        .status {
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .status.show {
+            display: block;
+        }
+
+        .status.scanning {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 ZeroDrop Reader</h1>
+        <p class="subtitle">Offline QR Code Decryption • Zero-Knowledge</p>
+
+        <div id="status" class="status"></div>
+
+        <div class="section">
+            <div class="section-title">1. Scan QR Code</div>
+            <div class="scanner-container">
+                <video id="video" autoplay playsinline></video>
+                <div class="scan-overlay"></div>
+            </div>
+            <p class="info">Position the QR code within the frame. Camera access is required.</p>
+        </div>
+
+        <div class="section">
+            <div class="section-title">2. Paste Private Key</div>
+            <textarea id="privateKey" placeholder="Paste your private key in PEM format...
+-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----"></textarea>
+        </div>
+
+        <button id="decryptBtn" disabled>🔓 Decrypt</button>
+
+        <div id="result" class="result">
+            <div class="result-title"></div>
+            <div class="result-content"></div>
+        </div>
+
+        <div class="fingerprint">
+            Public Key Fingerprint: <code id="fingerprint">Calculating...</code>
+        </div>
+
+        <p class="info">
+            <strong>Zero-Knowledge Guarantee:</strong> This decryption happens entirely in your browser.<br>
+            No data is sent to any server. Your private key never leaves this device.
+        </p>
+    </div>
+
+    <script type="module">
+        // ZeroDrop Reader - Offline QR Decryption
+        // Uses Web Crypto API for client-side decryption
+
+        const video = document.getElementById('video');
+        const privateKeyInput = document.getElementById('privateKey');
+        const decryptBtn = document.getElementById('decryptBtn');
+        const resultDiv = document.getElementById('result');
+        const statusDiv = document.getElementById('status');
+        const fingerprintSpan = document.getElementById('fingerprint');
+
+        let publicKey = null;
+        let privateKey = null;
+        let qrCodeData = '';
+
+        // Initialize camera
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' }
+                });
+                video.srcObject = stream;
+                showStatus('Scanning...', 'scanning');
+            } catch (err) {
+                showStatus('Camera access denied: ' + err.message, 'error');
+            }
+        }
+
+        // Extract and decode public key from private key
+        async function extractPublicKey(privateKeyPEM) {
+            try {
+                // Import private key
+                const keyData = pemToArrayBuffer(privateKeyPEM);
+                privateKey = await window.crypto.subtle.importKey(
+                    'pkcs8',
+                    keyData,
+                    { name: 'X25519' },
+                    true,
+                    ['deriveBits']
+                );
+
+                // Derive public key from private key
+                const publicKeyData = await window.crypto.subtle.exportKey('spki', privateKey);
+                publicKey = await window.crypto.subtle.importKey(
+                    'spki',
+                    publicKeyData,
+                    { name: 'X25519' },
+                    true,
+                    []
+                );
+
+                // Calculate fingerprint
+                const fingerprint = await calculateFingerprint(publicKeyData);
+                fingerprintSpan.textContent = fingerprint;
+
+                return publicKey;
+            } catch (err) {
+                throw new Error('Failed to process private key: ' + err.message);
+            }
+        }
+
+        // Calculate SHA-256 fingerprint of public key
+        async function calculateFingerprint(publicKeyData) {
+            const hashBuffer = await window.crypto.subtle.digest('SHA-256', publicKeyData);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        // Decrypt the ciphertext
+        async function decrypt(ciphertext) {
+            if (!privateKey) {
+                throw new Error('Private key not loaded');
+            }
+
+            // Decode base64
+            const ciphertextBytes = base64ToArrayBuffer(ciphertext);
+
+            // For X25519 (ECDH), we need to derive a shared secret
+            // In ZeroDrop, the "public key" from the server is used as peer public key
+            // and the private key is used to derive the shared secret
+
+            // Note: This is a simplified implementation. In production, you would need
+            // to import the server's public key separately or have it embedded in the QR.
+
+            // For now, we'll assume the ciphertext includes necessary peer info
+            // In production ZeroDrop, the full ECDH implementation would be here
+
+            // Placeholder for decryption logic
+            // The actual implementation depends on the key exchange mechanism
+            throw new Error('Full ECDH decryption not yet implemented in reader.html v1.0');
+        }
+
+        // PEM to ArrayBuffer
+        function pemToArrayBuffer(pem) {
+            const b64 = pem.replace(/-----BEGIN .*-----/g, '')
+                           .replace(/-----END .*-----/g, '')
+                           .replace(/\s/g, '');
+            const binaryString = window.atob(b64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        // Base64 to ArrayBuffer
+        function base64ToArrayBuffer(base64) {
+            const binaryString = window.atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        // Show status message
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = 'status show ' + type;
+        }
+
+        // Show result
+        function showResult(type, title, content) {
+            resultDiv.className = 'result ' + type;
+            resultDiv.querySelector('.result-title').textContent = title;
+            resultDiv.querySelector('.result-content').textContent = content;
+        }
+
+        // Event listeners
+        privateKeyInput.addEventListener('input', async () => {
+            const pem = privateKeyInput.value.trim();
+            if (pem.includes('-----BEGIN PRIVATE KEY-----')) {
+                try {
+                    await extractPublicKey(pem);
+                    decryptBtn.disabled = !qrCodeData;
+                    showStatus('Private key loaded. Ready to decrypt.', 'scanning');
+                } catch (err) {
+                    showStatus(err.message, 'error');
+                    decryptBtn.disabled = true;
+                }
+            }
+        });
+
+        decryptBtn.addEventListener('click', async () => {
+            try {
+                showStatus('Decrypting...', 'scanning');
+                const plaintext = await decrypt(qrCodeData);
+                showResult('success', '✅ Decryption Successful', plaintext);
+                showStatus('Decryption complete', 'scanning');
+            } catch (err) {
+                showResult('error', '❌ Decryption Failed', err.message);
+                showStatus('Decryption failed', 'error');
+            }
+        });
+
+        // Initialize
+        initCamera();
+    </script>
+</body>
+</html>

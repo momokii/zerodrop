@@ -1,0 +1,29 @@
+# ZeroDrop Terminal - Base Docker Compose Configuration
+# This file contains environment-agnostic service definitions.
+# Override files (override.yml, prod.yml) add environment-specific settings.
+
+version: '3.8'
+
+services:
+  zerodrop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: zerodrop:latest
+    container_name: zerodrop-terminal
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PRINTER_TYPE=mock
+      - PUBLIC_KEY_PATH=/app/data/public_key.pem
+      - LOG_ENABLED=false
+    volumes:
+      # Persist public key
+      - ./data:/app/data
+    networks:
+      - zerodrop-net
+
+networks:
+  zerodrop-net:
+    driver: bridge

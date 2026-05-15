@@ -1,0 +1,145 @@
+package main
+
+import (
+	"context"
+	"log"
+	"syscall"
+	"time"
+
+	"github.com/zerodrop/terminal/pkg/api"
+	"github.com/zerodrop/terminal/pkg/config"
+	"github.com/zerodrop/terminal/pkg/crypto"
+	"github.com/zerodrop/terminal/pkg/observability"
+	"github.com/zerodrop/terminal/pkg/printer"
+	"github.com/zerodrop/terminal/pkg/spooler"
+)
+
+func main() {
+	log.Println("ZeroDrop Terminal v1.0 Starting...")
+
+	// Load configuration from environment
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		log.Fatalf("Configuration error: %v", err)
+	}
+
+	log.Printf("Configuration loaded:")
+	log.Printf("  Printer Type: %s", cfg.PrinterType)
+	if cfg.PrinterDevice != "" {
+		log.Printf("  Printer Device: %s", cfg.PrinterDevice)
+	}
+	log.Printf("  Rate Limit: %d req/hour (burst: %d)", cfg.RateLimitRequestsPerHour, cfg.RateLimitBurst)
+	log.Printf("  Logging: %v", cfg.LogEnabled)
+	log.Printf("  Public Key Path: %s", cfg.PublicKeyPath)
+
+	// Initialize logger
+	logger := observability.NewLogger(cfg.LogEnabled)
+	logger.Info("ZeroDrop Terminal starting", map[string]interface{}{
+		"version":      "1.0",
+		"printer_type": cfg.PrinterType,
+	})
+
+	// Initialize or load key pair
+	log.Println("\n=== Key Provisioning ===")
+	keyPair, err := crypto.InitializeOrLoadKeyPair(cfg.PublicKeyPath)
+	if err != nil {
+		log.Fatalf("Failed to initialize key pair: %v", err)
+	}
+
+	logger.Info("Key pair generated successfully", map[string]interface{}{
+		"fingerprint": func() string {
+			fp, _ := crypto.GetPublicKeyFingerprint(keyPair.PublicKey)
+			return fp
+		}(),
+	})
+
+	log.Println("\n=== Burn Protocol ===")
+	log.Println("Executing Burn Protocol to destroy private key from memory...")
+	crypto.BurnProtocol(keyPair)
+	logger.Info("Burn Protocol complete", map[string]interface{}{
+		"status": "private_key_destroyed",
+	})
+	log.Println("Burn Protocol complete. Private key has been destroyed from server memory.")
+
+	// Create printer based on configuration
+	var printImpl printer.Printer
+	var printInterface interface{} // For extended interfaces (HealthChecker, etc.)
+
+	switch cfg.PrinterType {
+	case "mock":
+		printImpl = printer.NewMockPrinter()
+		printInterface = printImpl
+		logger.Info("Mock printer initialized", nil)
+
+	case "usb":
+		log.Println("\n=== USB Printer Initialization ===")
+		usbPrinter, err := printer.NewUSBPrinter(cfg.PrinterDevice)
+		if err != nil {
+			log.Printf("USB printer initialization failed: %v", err)
+			log.Println("Falling back to Mock Printer...")
+			printImpl = printer.NewMockPrinter()
+			printInterface = printImpl
+		} else {
+			printImpl = usbPrinter
+			printInterface = usbPrinter
+			log.Printf("USB printer initialized at %s", usbPrinter.GetDevicePath())
+
+			// Show detected printers info
+			printers := printer.DetectAvailablePrinters()
+			log.Printf("Detected %d thermal printer device(s)", len(printers))
+			for i, p := range printers {
+				log.Printf("  %d. %s - %s", i+1, p["path"], p["model"])
+			}
+		}
+
+	default:
+		log.Fatalf("Unknown printer type: %s", cfg.PrinterType)
+	}
+
+	// Create spooler with queue size of 10
+	splr := spooler.NewSpooler(10, printImpl)
+
+	// Create API server with printer for health checks
+	server := api.NewServer(cfg, splr.Queue(), printInterface)
+
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start spooler worker
+	splr.Start(ctx)
+
+	// Start API server in background
+	go func() {
+		log.Printf("API server starting on :8080")
+		if err := server.Start(":8080"); err != nil {
+			logger.Error("API server failed", map[string]interface{}{
+				"error": err.Error(),
+			})
+			cancel()
+		}
+	}()
+
+	log.Println("\n=== ZeroDrop Terminal Ready ===")
+	log.Printf("API server listening on :8080")
+	log.Printf("Endpoints:")
+	log.Printf("  GET  /key     - Retrieve public key")
+	log.Printf("  POST /drop    - Submit encrypted payload")
+	log.Printf("  GET  /health  - Health check (includes printer status)")
+	log.Println("")
+	log.Println("IMPORTANT: Ensure you have saved the private key QR code from above.")
+	log.Println("The server can no longer decrypt messages.")
+	log.Println("")
+	log.Println("Press Ctrl+C to gracefully shutdown...")
+
+	// Setup graceful shutdown
+	shutdownHandler := observability.NewShutdownHandler(splr, 30*time.Second) // 30 second timeout
+
+	// Wait for shutdown signal
+	shutdownHandler.WaitForSignal(syscall.SIGINT, syscall.SIGTERM)
+
+	// Initiate graceful shutdown
+	shutdownHandler.Shutdown()
+
+	log.Println("ZeroDrop Terminal stopped.")
+}

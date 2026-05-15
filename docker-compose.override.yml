@@ -1,0 +1,19 @@
+# ZeroDrop Terminal - Development Override
+# This file is automatically loaded by docker-compose up
+# Use for local development with hot reload and debug features
+
+version: '3.8'
+
+services:
+  zerodrop:
+    build:
+      target: builder
+    environment:
+      - LOG_ENABLED=true
+    volumes:
+      # Mount source code for hot reload (if using air)
+      - .:/app
+      # Mount for USB device access (when using real printer)
+      # - /dev/usb/lp0:/dev/usb/lp0
+    # Enable debug mode (if applicable)
+    # command: ./air

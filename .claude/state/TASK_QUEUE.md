@@ -141,18 +141,61 @@ ZeroDrop Terminal v1.0 is **ready for production deployment**:
 
 1. **Single Binary** (simplest):
    ```bash
-   PRINTER_TYPE=usb PRINTER_DEVICE="" ./bin/zerodrop
+   make -f Makefile.deploy deploy-binary
+   make -f Makefile.deploy run-binary
    ```
 
 2. **Docker Compose** (recommended for production):
    ```bash
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.traefik.yml up -d
+   make -f Makefile.deploy deploy
    ```
 
 3. **Systemd Service** (for Linux servers):
-   - Create systemd unit file
-   - Enable on boot
-   - Configure USB device permissions via udev
+   ```bash
+   make -f Makefile.deploy setup-user
+   make -f Makefile.deploy setup-udev
+   make -f Makefile.deploy setup-systemd
+   ```
+
+### Deployment Makefile
+
+Created `Makefile.deploy` with comprehensive production operations:
+
+**Quick Deploy:**
+- `make -f Makefile.deploy deploy` — Full production deployment (Docker)
+- `make -f Makefile.deploy deploy-binary` — Deploy as single binary
+- `make -f Makefile.deploy deploy-update` — Update with backup
+- `make -f Makefile.deploy deploy-rollback` — Rollback to previous version
+
+**Build:**
+- `make -f Makefile.deploy build-all` — Build all (binary + Docker)
+- `make -f Makefile.deploy build-binary` — Build production binary
+- `make -f Makefile.deploy build-docker` — Build Docker images
+
+**Operations:**
+- `make -f Makefile.deploy run-binary` / `run-docker` — Start services
+- `make -f Makefile.deploy stop-docker` / `restart-docker` — Manage Docker
+- `make -f Makefile.deploy health` / `health-detailed` — Health checks
+- `make -f Makefile.deploy status` — Show service status
+- `make -f Makefile.deploy logs` / `logs-docker` — View logs
+
+**Backup & Restore:**
+- `make -f Makefile.deploy backup-key` / `restore-key` — Key management
+- `make -f Makefile.deploy backup-config` / `restore-config` — Configuration backup
+- `make -f Makefile.deploy rollback-archive` — Create rollback archive
+- `make -f Makefile.deploy rollback-list` — List rollback archives
+- `make -f Makefile.deploy rollback-clean` — Clean old archives
+
+**Security:**
+- `make -f Makefile.deploy check-secure` — Run security checks (vet, vulnscan, race detection)
+- `make -f Makefile.deploy update-deps` — Update and audit dependencies
+- `make -f Makefile.deploy scan-vulns` — Scan for vulnerabilities
+
+**System Setup:**
+- `make -f Makefile.deploy setup-systemd` — Generate systemd service file
+- `make -f Makefile.deploy setup-udev` — Generate USB printer udev rules
+- `make -f Makefile.deploy setup-user` — Create dedicated service user
+- `make -f Makefile.deploy setup-firewall` — Firewall configuration
 
 ---
 

@@ -213,3 +213,11 @@
 **Alternatives Rejected:** Adding more features (scope creep), delaying release (unnecessary).
 **Security Implications:** Positive — zero-knowledge guarantee preserved. All security requirements met.
 **Impact:** ZeroDrop Terminal v1.0 ready for production deployment. 23 tests passing. No known vulnerabilities.
+---
+**Decision:** Deployment Makefile — Operations-Focused Automation
+**Date:** 2026-05-18
+**Context:** Production deployment requires comprehensive operational tooling beyond development Makefile.
+**Rationale:** Created separate `Makefile.deploy` with production-focused targets: deploy, build, run/stop, health/status, backup/restore, security, system setup (systemd/udev/firewall), rollback. Keeps development and operational concerns separate.
+**Alternatives Rejected:** Extending main Makefile (bloats dev experience), ansible/chef (overkill for single-app deployment), manual scripts (error-prone).
+**Security Implications:** Positive — includes security checks (vet, vulnscan, race detection) in deployment workflow. Backup/restore for critical public key.
+**Impact:** `Makefile.deploy` provides 30+ production operations targets. Single source of truth for deployment procedures.

@@ -185,4 +185,6 @@ All tests passing:
 
 ## Last Updated
 
+2026-05-18 — **Deployment Makefile Complete**: Created `Makefile.deploy` with 30+ production operations targets. Includes deploy (binary/Docker), build, run/stop, health/status, backup/restore, security checks, system setup (systemd/udev/firewall), and rollback operations. Documented in DECISIONS_LOG.md and TASK_QUEUE.md.
+
 2026-05-12 — **M-05 COMPLETE**: ZeroDrop Terminal v1.0 ready for production deployment. All 5 milestones implemented. Frontend (React + Vite + shadcn/ui) complete with Web Crypto API integration. Backend serves SPA with fallback handler. Production builds verified.

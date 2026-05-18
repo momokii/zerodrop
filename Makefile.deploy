@@ -1,0 +1,349 @@
+# ZeroDrop Terminal v1.0 — Production Deployment Makefile
+# Operations-focused targets for production deployment and maintenance
+
+.PHONY: help deploy deploy-rollback deploy-update deploy-status
+.PHONY: build-binary build-docker build-all
+.PHONY: run-binary run-docker stop-docker restart-docker
+.PHONY: health health-detailed status logs logs-docker
+.PHONY: backup-key restore-key backup-config restore-config
+.PHONY: check-secure update-deps scan-vulns
+.PHONY: setup-systemd setup-udev setup-user setup-firewall
+
+help:
+	@echo "ZeroDrop Terminal v1.0 — Production Deployment"
+	@echo ""
+	@echo "Quick Deploy:"
+	@echo "  make deploy              - Full production deployment (Docker)"
+	@echo "  make deploy-binary       - Deploy as single binary"
+	@echo ""
+	@echo "Build:"
+	@echo "  make build-all           - Build all (binary + Docker)"
+	@echo "  make build-binary        - Build production binary"
+	@echo "  make build-docker        - Build Docker images"
+	@echo ""
+	@echo "Run/Stop:"
+	@echo "  make run-binary          - Run as single binary"
+	@echo "  make run-docker          - Run with Docker Compose"
+	@echo "  make stop-docker         - Stop Docker services"
+	@echo "  make restart-docker      - Restart Docker services"
+	@echo ""
+	@echo "Health & Status:"
+	@echo "  make health               - Quick health check"
+	@echo "  make health-detailed     - Detailed health with printer status"
+	@echo "  make status               - Show service status"
+	@echo "  make logs                - Show service logs"
+	@echo "  make logs-docker         - Show Docker logs"
+	@echo ""
+	@echo "Backup & Restore:"
+	@echo "  make backup-key          - Backup public key"
+	@echo "  make restore-key         - Restore public key from backup"
+	@echo "  make backup-config       - Backup configuration"
+	@echo "  make restore-config      - Restore configuration"
+	@echo ""
+	@echo "Security:"
+	@echo "  make check-secure        - Run security checks"
+	@echo "  make update-deps         - Update and audit dependencies"
+	@echo "  make scan-vulns          - Scan for vulnerabilities"
+	@echo ""
+	@echo "System Setup:"
+	@echo "  make setup-systemd       - Install systemd service"
+	@echo "  make setup-udev          - Configure USB printer permissions"
+	@echo "  make setup-user          - Create dedicated service user"
+	@echo "  make setup-firewall      - Configure firewall rules"
+	@echo ""
+	@echo "Rollback:"
+	@echo "  make deploy-rollback     - Rollback to previous version"
+	@echo "  make rollback-archive    - Create rollback archive"
+	@echo "  make rollback-list       - List rollback archives"
+	@echo ""
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+BINARY_NAME=zerodrop
+BUILD_DIR=bin
+FRONTEND_DIR=frontend
+FRONTEND_DIST=$(FRONTEND_DIR)/dist
+PUBLIC_KEY_PATH=./data/public_key.pem
+CONFIG_FILE=./data/config.env
+BACKUP_DIR=./data/backups
+DOCKER_COMPOSE=docker-compose
+TIMESTAMP=$(shell date +%Y%m%d_%H%M%S)
+
+# Production defaults (can be overridden)
+PRINTER_TYPE?=usb
+PRINTER_DEVICE?=
+LOG_ENABLED?=false
+LISTEN_ADDR=:8080
+
+# =============================================================================
+# Deployment Targets
+# =============================================================================
+
+.PHONY: deploy deploy-binary deploy-update deploy-rollback
+deploy: check-secure build-all run-docker
+	@echo "✓ ZeroDrop Terminal deployed successfully"
+	@echo "  Access: http://localhost:8080"
+	@echo "  Health: make health"
+	@echo "  Logs:   make logs-docker"
+
+deploy-binary: check-secure build-binary
+	@echo "→ Deploying as single binary..."
+	@echo "  To run as systemd service: make setup-systemd"
+	@echo "  To run manually: make run-binary"
+
+deploy-update: backup-key backup-config
+	@echo "→ Updating ZeroDrop Terminal..."
+	@$(MAKE) deploy
+	@echo "✓ Update complete"
+	@echo "  Backups saved to $(BACKUP_DIR)"
+
+deploy-rollback:
+	@echo "→ Rolling back to previous version..."
+	@if [ -f $(BACKUP_DIR)/$(BINARY_NAME).backup ]; then \
+		cp $(BACKUP_DIR)/$(BINARY_NAME).backup $(BUILD_DIR)/$(BINARY_NAME); \
+		echo "✓ Binary rolled back"; \
+	else \
+		echo "✗ No backup found"; \
+		exit 1; \
+	fi
+	@$(MAKE) stop-docker
+	@$(MAKE) run-docker
+	@echo "✓ Rollback complete"
+
+# =============================================================================
+# Build Targets
+# =============================================================================
+
+.PHONY: build-all build-binary build-docker build-frontend
+build-all: build-binary build-docker
+	@echo "✓ All builds complete"
+
+build-binary: build-frontend
+	@echo "→ Building production binary..."
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 go build -ldflags="-w -s" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/zerodrop
+	@ls -lh $(BUILD_DIR)/$(BINARY_NAME)
+	@chmod +x $(BUILD_DIR)/$(BINARY_NAME)
+	@echo "✓ Binary built: $(BUILD_DIR)/$(BINARY_NAME)"
+
+build-frontend:
+	@echo "→ Building frontend for production..."
+	cd $(FRONTEND_DIR) && npm ci --production=false
+	cd $(FRONTEND_DIR) && npm run build
+	@echo "✓ Frontend built: $(FRONTEND_DIST)"
+
+build-docker:
+	@echo "→ Building Docker images..."
+	@$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.traefik.yml build
+	@echo "✓ Docker images built"
+
+# =============================================================================
+# Run/Stop Targets
+# =============================================================================
+
+.PHONY: run-binary run-docker stop-docker restart-docker
+run-binary:
+	@echo "→ Starting ZeroDrop Terminal (binary mode)..."
+	@PRINTER_TYPE=$(PRINTER_TYPE) \
+	 PRINTER_DEVICE=$(PRINTER_DEVICE) \
+	 LOG_ENABLED=$(LOG_ENABLED) \
+	 PUBLIC_KEY_PATH=$(PUBLIC_KEY_PATH) \
+	 $(BUILD_DIR)/$(BINARY_NAME) &
+
+run-docker:
+	@echo "→ Starting ZeroDrop Terminal (Docker mode)..."
+	@$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.traefik.yml up -d
+	@echo "✓ Docker services running"
+	@sleep 2
+	@$(MAKE) health
+
+stop-docker:
+	@echo "→ Stopping Docker services..."
+	@$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.traefik.yml down
+	@echo "✓ Docker services stopped"
+
+restart-docker: stop-docker run-docker
+	@echo "✓ Docker services restarted"
+
+# =============================================================================
+# Health & Status Targets
+# =============================================================================
+
+.PHONY: health health-detailed status logs logs-docker
+health:
+	@echo "→ Health check..."
+	@curl -sf http://localhost:8080/health || (echo "✗ Service unhealthy" && exit 1)
+	@echo "✓ Service healthy"
+
+health-detailed:
+	@echo "→ Detailed health check..."
+	@curl -sf http://localhost:8080/health 2>/dev/null | jq . || echo "✗ Health check failed"
+
+status:
+	@echo "→ Service Status:"
+	@echo "  Binary: $$(which $(BINARY_NAME) 2>/dev/null || echo 'not in PATH')"
+	@echo "  Binary exists: $$(test -f $(BUILD_DIR)/$(BINARY_NAME) && echo 'yes' || echo 'no')"
+	@echo "  Frontend exists: $$(test -d $(FRONTEND_DIST) && echo 'yes' || echo 'no')"
+	@echo "  Public key: $$(test -f $(PUBLIC_KEY_PATH) && echo 'yes' || echo 'no')"
+	@echo ""
+	@echo "→ Running services:"
+	@pgrep -f $(BUILD_DIR)/$(BINARY_NAME) > /dev/null && (PID=$$(pgrep -f $(BUILD_DIR)/$(BINARY_NAME) | head -1); echo "  Binary: running (PID: $$PID)") || echo "  Binary: stopped"
+	@docker ps --format '{{.Names}}' 2>/dev/null | grep -q zerodrop && echo "  Docker: running" || echo "  Docker: stopped"
+
+logs:
+	@echo "→ Service logs (last 50 lines):"
+	@if [ -f zerodrop.log ]; then \
+		tail -50 zerodrop.log; \
+	else \
+		echo "  No log file found"; \
+	fi
+
+logs-docker:
+	@echo "→ Docker logs (last 50 lines):"
+	@$(DOCKER_COMPOSE) logs --tail=50 -f
+
+# =============================================================================
+# Backup & Restore Targets
+# =============================================================================
+
+.PHONY: backup-key restore-key backup-config restore-config
+backup-key:
+	@echo "→ Backing up public key..."
+	@mkdir -p $(BACKUP_DIR)
+	@if [ -f $(PUBLIC_KEY_PATH) ]; then \
+		cp $(PUBLIC_KEY_PATH) $(BACKUP_DIR)/public_key.pem.$(TIMESTAMP); \
+		cp $(PUBLIC_KEY_PATH) $(BACKUP_DIR)/public_key.pem.backup; \
+		echo "✓ Public key backed up to $(BACKUP_DIR)"; \
+	else \
+		echo "✗ Public key not found"; \
+	fi
+
+restore-key:
+	@echo "→ Restoring public key..."
+	@if [ -f $(BACKUP_DIR)/public_key.pem.backup ]; then \
+		cp $(BACKUP_DIR)/public_key.pem.backup $(PUBLIC_KEY_PATH); \
+		echo "✓ Public key restored"; \
+	else \
+		echo "✗ Backup not found"; \
+	fi
+
+backup-config:
+	@echo "→ Backing up configuration..."
+	@mkdir -p $(BACKUP_DIR)
+	@tar -czf $(BACKUP_DIR)/config.$(TIMESTAMP).tar.gz data/ 2>/dev/null || echo "  No data directory to backup"
+	@echo "✓ Configuration backed up to $(BACKUP_DIR)"
+
+restore-config:
+	@echo "→ Restoring configuration..."
+	@echo "  Available backups:"
+	@ls -lt $(BACKUP_DIR)/config.*.tar.gz 2>/dev/null || echo "  No backups found"
+	@echo "  To restore: tar -xzf <backup-file> -C ."
+
+# =============================================================================
+# Security Targets
+# =============================================================================
+
+.PHONY: check-secure update-deps scan-vulns
+check-secure:
+	@echo "→ Running security checks..."
+	@echo "  Go vet..."
+	@go vet ./... || (echo "✗ Go vet failed" && exit 1)
+	@echo "  govulncheck..."
+	@govulncheck ./... || (echo "✗ Vulnerabilities found" && exit 1)
+	@echo "  Test with race detection..."
+	@go test ./... -race -short || (echo "✗ Race conditions found" && exit 1)
+	@echo "✓ All security checks passed"
+
+update-deps:
+	@echo "→ Updating dependencies..."
+	@go get -u ./...
+	@go mod tidy
+	@echo "  Frontend dependencies..."
+	cd $(FRONTEND_DIR) && npm update
+	cd $(FRONTEND_DIR) && npm audit fix
+	@echo "✓ Dependencies updated"
+
+scan-vulns:
+	@echo "→ Scanning for vulnerabilities..."
+	@govulncheck ./...
+	@cd $(FRONTEND_DIR) && npm audit
+	@echo "✓ Vulnerability scan complete"
+
+# =============================================================================
+# System Setup Targets
+# =============================================================================
+
+.PHONY: setup-systemd setup-udev setup-user setup-firewall
+setup-systemd:
+	@echo "→ Installing systemd service..."
+	@printf "[Unit]\nDescription=ZeroDrop Terminal\nAfter=network.target\n\n" > /tmp/zerodrop.service
+	@printf "[Service]\nType=simple\nUser=zerodrop\n" >> /tmp/zerodrop.service
+	@printf "WorkingDirectory=/opt/zerodrop\nExecStart=/opt/zerodrop/bin/zerodrop\n" >> /tmp/zerodrop.service
+	@printf "Restart=always\nRestartSec=10\n" >> /tmp/zerodrop.service
+	@printf 'Environment="PRINTER_TYPE=usb"\nEnvironment="LOG_ENABLED=false"\n' >> /tmp/zerodrop.service
+	@printf 'Environment="PUBLIC_KEY_PATH=/opt/zerodrop/data/public_key.pem"\n\n' >> /tmp/zerodrop.service
+	@printf "# Security hardening\nNoNewPrivileges=true\n" >> /tmp/zerodrop.service
+	@printf "PrivateTmp=true\nProtectSystem=strict\n" >> /tmp/zerodrop.service
+	@printf "ProtectHome=true\nReadWritePaths=/opt/zerodrop/data\n\n" >> /tmp/zerodrop.service
+	@printf "[Install]\nWantedBy=multi-user.target\n" >> /tmp/zerodrop.service
+	@echo "→ Service file created at /tmp/zerodrop.service"
+	@echo "  To install: sudo cp /tmp/zerodrop.service /etc/systemd/system/"
+	@echo "  To enable: sudo systemctl enable zerodrop"
+	@echo "  To start: sudo systemctl start zerodrop"
+
+setup-udev:
+	@echo "→ Configuring USB printer permissions..."
+	@printf "# ZeroDrop Terminal - Thermal printer access\n" > /tmp/99-zerodrop-printer.rules
+	@printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="1504", ATTR{idProduct}=="0006", MODE="0666"\n' >> /tmp/99-zerodrop-printer.rules
+	@printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="04b8", ATTR{idProduct}=="0202", MODE="0666"\n' >> /tmp/99-zerodrop-printer.rules
+	@printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="04b8", ATTR{idProduct}=="0203", MODE="0666"\n' >> /tmp/99-zerodrop-printer.rules
+	@printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="0416", ATTR{idProduct}=="5011", MODE="0666"\n' >> /tmp/99-zerodrop-printer.rules
+	@printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="0456", ATTR{idProduct}=="0808", MODE="0666"\n' >> /tmp/99-zerodrop-printer.rules
+	@printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="0456", ATTR{idProduct}=="0800", MODE="0666"\n' >> /tmp/99-zerodrop-printer.rules
+	@printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="0519", ATTR{idProduct}=="0002", MODE="0666"\n' >> /tmp/99-zerodrop-printer.rules
+	@printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="0fe6", ATTR{idProduct}=="811e", MODE="0666"\n' >> /tmp/99-zerodrop-printer.rules
+	@printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="0493", ATTR{idProduct}=="a002", MODE="0666"\n' >> /tmp/99-zerodrop-printer.rules
+	@printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="0493", ATTR{idProduct}=="b002", MODE="0666"\n' >> /tmp/99-zerodrop-printer.rules
+	@echo "→ Udev rules created at /tmp/99-zerodrop-printer.rules"
+	@echo "  To install: sudo cp /tmp/99-zerodrop-printer.rules /etc/udev/rules.d/"
+	@echo "  To reload: sudo udevadm control --reload-rules"
+	@echo "  To trigger: sudo udevadm trigger"
+
+setup-user:
+	@echo "→ Creating service user..."
+	@echo "  Run as root: sudo useradd -r -s /bin/false -d /opt/zerodrop zerodrop"
+	@echo "  Create directories: sudo mkdir -p /opt/zerodrop/{bin,data}"
+	@echo "  Set ownership: sudo chown -R zerodrop:zerodrop /opt/zerodrop"
+
+setup-firewall:
+	@echo "→ Configuring firewall rules..."
+	@echo "  UFW: sudo ufw allow 80/tcp && sudo ufw allow 443/tcp"
+	@echo "  iptables: sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT"
+	@echo "             sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT"
+
+# =============================================================================
+# Rollback Archive
+# =============================================================================
+
+.PHONY: rollback-archive rollback-list rollback-clean
+rollback-archive:
+	@echo "→ Creating rollback archive..."
+	@mkdir -p $(BACKUP_DIR)
+	@tar -czf $(BACKUP_DIR)/rollback.$(TIMESTAMP).tar.gz \
+		$(BUILD_DIR)/$(BINARY_NAME) \
+		$(FRONTEND_DIST) \
+		$(PUBLIC_KEY_PATH) \
+		docker-compose*.yml \
+		Dockerfile 2>/dev/null || echo "  Warning: Some files missing"
+	@echo "✓ Rollback archive created: $(BACKUP_DIR)/rollback.$(TIMESTAMP).tar.gz"
+
+rollback-list:
+	@echo "→ Available rollback archives:"
+	@ls -lht $(BACKUP_DIR)/rollback.*.tar.gz 2>/dev/null || echo "  No archives found"
+
+rollback-clean:
+	@echo "→ Cleaning old rollback archives (keeping last 5)..."
+	@ls -t $(BACKUP_DIR)/rollback.*.tar.gz 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
+	@echo "✓ Old archives cleaned"

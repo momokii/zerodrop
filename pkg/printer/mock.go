@@ -39,7 +39,7 @@ func (m *MockPrinter) IsAvailable() bool {
 
 // SetAvailable sets the availability status of the mock printer
 func (m *MockPrinter) SetAvailable(available bool) {
-	m.available = false
+	m.available = available
 }
 
 // HealthCheck returns health status for the mock printer

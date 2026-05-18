@@ -66,6 +66,9 @@ cmd/
 └── zerodrop/
     └── main.go               # ✅ Application entry point
 
+Makefile                     # ✅ Development Makefile
+Makefile.deploy              # ✅ Production deployment Makefile
+
 frontend/                     # ✅ React + Vite + shadcn/ui (M-05 complete)
 ├── src/
 │   ├── components/
@@ -200,6 +203,13 @@ PRINTER_TYPE=mock ./bin/zerodrop
 # Docker Compose (production)
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.traefik.yml up -d
 
+# Using Deployment Makefile (production operations)
+make -f Makefile.deploy deploy              # Full deployment
+make -f Makefile.deploy check-secure       # Security checks
+make -f Makefile.deploy status             # Service status
+make -f Makefile.deploy logs-docker        # Docker logs
+make -f Makefile.deploy backup-key         # Backup public key
+
 # Lint
 go fmt ./...
 go vet ./...
@@ -210,7 +220,23 @@ govulncheck ./...
 
 ZeroDrop Terminal v1.0 is ready for production deployment:
 
-1. **Single Binary** (recommended for simplicity):
+**Using Deployment Makefile (recommended):**
+```bash
+# Quick deployment (Docker)
+make -f Makefile.deploy deploy
+
+# Single binary deployment
+make -f Makefile.deploy deploy-binary
+make -f Makefile.deploy run-binary
+
+# Full system setup (systemd + udev + user)
+make -f Makefile.deploy setup-user
+make -f Makefile.deploy setup-udev
+make -f Makefile.deploy setup-systemd
+```
+
+**Manual deployment:**
+1. **Single Binary**:
    ```bash
    # Build frontend (already done)
    cd frontend && npm run build && cd ..
@@ -222,7 +248,7 @@ ZeroDrop Terminal v1.0 is ready for production deployment:
    PRINTER_TYPE=usb PRINTER_DEVICE="" ./bin/zerodrop
    ```
 
-2. **Docker Compose** (recommended for scalability):
+2. **Docker Compose**:
    ```bash
    docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.traefik.yml up -d
    ```

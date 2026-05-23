@@ -250,10 +250,8 @@
         </p>
     </div>
 
+    <script src="jsqr.min.js"></script>
     <script type="module">
-        // ZeroDrop Reader - Offline QR Decryption
-        // Uses Web Crypto API for client-side decryption
-
         const video = document.getElementById('video');
         const privateKeyInput = document.getElementById('privateKey');
         const decryptBtn = document.getElementById('decryptBtn');
@@ -265,7 +263,6 @@
         let privateKey = null;
         let qrCodeData = '';
 
-        // Initialize camera
         async function initCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
@@ -273,15 +270,38 @@
                 });
                 video.srcObject = stream;
                 showStatus('Scanning...', 'scanning');
+                startQRScan();
             } catch (err) {
                 showStatus('Camera access denied: ' + err.message, 'error');
             }
         }
 
-        // Extract and decode public key from private key
+        function startQRScan() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            function scan() {
+                if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0 && video.videoHeight > 0) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+                    if (code && code.data && code.data.startsWith('ZD1:')) {
+                        qrCodeData = code.data;
+                        showStatus('QR scanned! Ready to decrypt.', 'scanning');
+                        decryptBtn.disabled = !privateKey;
+                    }
+                }
+                requestAnimationFrame(scan);
+            }
+            scan();
+        }
+
         async function extractPublicKey(privateKeyPEM) {
             try {
-                // Import private key
                 const keyData = pemToArrayBuffer(privateKeyPEM);
                 privateKey = await window.crypto.subtle.importKey(
                     'pkcs8',
@@ -291,7 +311,6 @@
                     ['deriveBits']
                 );
 
-                // Derive public key from private key
                 const publicKeyData = await window.crypto.subtle.exportKey('spki', privateKey);
                 publicKey = await window.crypto.subtle.importKey(
                     'spki',
@@ -301,7 +320,6 @@
                     []
                 );
 
-                // Calculate fingerprint
                 const fingerprint = await calculateFingerprint(publicKeyData);
                 fingerprintSpan.textContent = fingerprint;
 
@@ -311,38 +329,53 @@
             }
         }
 
-        // Calculate SHA-256 fingerprint of public key
         async function calculateFingerprint(publicKeyData) {
             const hashBuffer = await window.crypto.subtle.digest('SHA-256', publicKeyData);
             const hashArray = Array.from(new Uint8Array(hashBuffer));
             return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
         }
 
-        // Decrypt the ciphertext
-        async function decrypt(ciphertext) {
+        async function decrypt(payloadString) {
             if (!privateKey) {
                 throw new Error('Private key not loaded');
             }
 
-            // Decode base64
-            const ciphertextBytes = base64ToArrayBuffer(ciphertext);
+            const data = payloadString.replace(/^ZD1:/, '');
+            const raw = base64ToArrayBuffer(data);
+            const rawBytes = new Uint8Array(raw);
 
-            // For X25519 (ECDH), we need to derive a shared secret
-            // In ZeroDrop, the "public key" from the server is used as peer public key
-            // and the private key is used to derive the shared secret
+            if (rawBytes.length < 44) {
+                throw new Error('Invalid payload: too short');
+            }
 
-            // Note: This is a simplified implementation. In production, you would need
-            // to import the server's public key separately or have it embedded in the QR.
+            const ephPubKeyRaw = rawBytes.slice(0, 32);
+            const iv = rawBytes.slice(32, 44);
+            const ciphertextWithTag = rawBytes.slice(44);
 
-            // For now, we'll assume the ciphertext includes necessary peer info
-            // In production ZeroDrop, the full ECDH implementation would be here
+            const ephPubKey = await window.crypto.subtle.importKey(
+                'raw', ephPubKeyRaw, { name: 'X25519' }, false, []
+            );
 
-            // Placeholder for decryption logic
-            // The actual implementation depends on the key exchange mechanism
-            throw new Error('Full ECDH decryption not yet implemented in reader.html v1.0');
+            const sharedSecret = await window.crypto.subtle.deriveBits(
+                { name: 'X25519', public: ephPubKey },
+                privateKey,
+                256
+            );
+
+            const aesKey = await window.crypto.subtle.importKey(
+                'raw', sharedSecret, { name: 'AES-GCM' }, false, ['decrypt']
+            );
+
+            const plaintextBytes = await window.crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: iv },
+                aesKey,
+                ciphertextWithTag
+            );
+
+            const decoder = new TextDecoder();
+            return decoder.decode(plaintextBytes);
         }
 
-        // PEM to ArrayBuffer
         function pemToArrayBuffer(pem) {
             const b64 = pem.replace(/-----BEGIN .*-----/g, '')
                            .replace(/-----END .*-----/g, '')
@@ -355,7 +388,6 @@
             return bytes.buffer;
         }
 
-        // Base64 to ArrayBuffer
         function base64ToArrayBuffer(base64) {
             const binaryString = window.atob(base64);
             const bytes = new Uint8Array(binaryString.length);
@@ -365,20 +397,17 @@
             return bytes.buffer;
         }
 
-        // Show status message
         function showStatus(message, type) {
             statusDiv.textContent = message;
             statusDiv.className = 'status show ' + type;
         }
 
-        // Show result
         function showResult(type, title, content) {
             resultDiv.className = 'result ' + type;
             resultDiv.querySelector('.result-title').textContent = title;
             resultDiv.querySelector('.result-content').textContent = content;
         }
 
-        // Event listeners
         privateKeyInput.addEventListener('input', async () => {
             const pem = privateKeyInput.value.trim();
             if (pem.includes('-----BEGIN PRIVATE KEY-----')) {
@@ -397,15 +426,14 @@
             try {
                 showStatus('Decrypting...', 'scanning');
                 const plaintext = await decrypt(qrCodeData);
-                showResult('success', '✅ Decryption Successful', plaintext);
+                showResult('success', '\u2705 Decryption Successful', plaintext);
                 showStatus('Decryption complete', 'scanning');
             } catch (err) {
-                showResult('error', '❌ Decryption Failed', err.message);
+                showResult('error', '\u274C Decryption Failed', err.message);
                 showStatus('Decryption failed', 'error');
             }
         });
 
-        // Initialize
         initCamera();
     </script>
 </body>

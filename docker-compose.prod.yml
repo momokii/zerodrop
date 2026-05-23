@@ -27,6 +27,10 @@ services:
     # No volume mounts for source code in production
     volumes:
       - ./data:/app/data
+    # USB device group permissions for printer access
+    group_add:
+      - dialout
+      - lp
     # Security options
     security_opt:
       - no-new-privileges:true

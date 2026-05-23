@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { checkHealth, fetchPublicKey, submitPayload, validatePayload } from "@/lib/api";
-import { encryptData, calculateFingerprintFromPEM } from "@/lib/crypto";
+import { encryptData, calculateFingerprintFromPEM, parsePEM } from "@/lib/crypto";
 import { copyToClipboard } from "@/lib/utils";
 
 type Step = "encrypt" | "submit" | "success" | "error";
@@ -77,14 +77,15 @@ function App() {
       setStatus({
         type: "info",
         title: "Encrypting...",
-        message: "Encrypting your message using the server's public key.",
+        message: "Encrypting...",
       });
 
-      // Import the server's public key
+      // Parse PEM and import the server's public key
+      const derBytes = parsePEM(serverPublicKey);
       const publicKey = await crypto.subtle.importKey(
         "spki",
-        new TextEncoder().encode(serverPublicKey),
-        { name: "X25519", public: true },
+        derBytes,
+        { name: "X25519" },
         false,
         []
       );
@@ -123,8 +124,8 @@ function App() {
     try {
       setStatus({
         type: "info",
-        title: "Submitting...",
-        message: "Sending encrypted payload to printer queue...",
+        title: "Transmitting...",
+        message: "Transmitting...",
       });
 
       await submitPayload(encryptedData);
@@ -132,8 +133,8 @@ function App() {
 
       setStatus({
         type: "success",
-        title: "Success!",
-        message: "Your encrypted message has been queued for printing. The QR code will be printed shortly.",
+        title: "Safely Dropped.",
+        message: "Safely Dropped.",
       });
     } catch (error) {
       setStep("submit");

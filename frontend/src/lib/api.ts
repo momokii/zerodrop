@@ -92,8 +92,8 @@ export function validatePayload(payload: string): { valid: boolean; error?: stri
     return { valid: false, error: "Payload cannot be empty" };
   }
 
-  if (payload.length > 250) {
-    return { valid: false, error: "Payload exceeds 250 character limit" };
+  if (payload.length > 400) {
+    return { valid: false, error: "Payload exceeds 400 character limit" };
   }
 
   // Check for ZD1: prefix
@@ -117,8 +117,6 @@ export function validatePayload(payload: string): { valid: boolean; error?: stri
  * Returns approximate QR code version (1-40)
  */
 export function estimateQRVersion(payloadLength: number): number {
-  // Approximate estimation based on data length
-  // QR versions: 1 (21x21) to 40 (177x177)
   if (payloadLength <= 25) return 1;
   if (payloadLength <= 47) return 2;
   if (payloadLength <= 77) return 3;
@@ -129,5 +127,5 @@ export function estimateQRVersion(payloadLength: number): number {
   if (payloadLength <= 290) return 8;
   if (payloadLength <= 345) return 9;
   if (payloadLength <= 404) return 10;
-  return 11; // Default for larger payloads
+  return 11;
 }

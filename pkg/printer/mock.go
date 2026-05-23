@@ -3,9 +3,11 @@ package printer
 import (
 	"fmt"
 	"log"
+
+	"github.com/zerodrop/terminal/pkg/qr"
 )
 
-// MockPrinter writes ESC/POS commands to stdout for testing and CI
+// MockPrinter writes QR code ESC/POS commands to stdout for testing and CI
 type MockPrinter struct {
 	available bool
 }
@@ -23,11 +25,22 @@ func (m *MockPrinter) Print(ciphertext []byte) error {
 		return fmt.Errorf("printer is not available")
 	}
 
-	log.Printf("[MockPrinter] Print job received")
-	log.Printf("[MockPrinter] Ciphertext: %s", string(ciphertext))
-	log.Printf("[MockPrinter] QR Payload (for display): %s", string(ciphertext))
-	log.Printf("[MockPrinter] Simulating QR code generation and ESC/POS rasterization...")
-	log.Printf("[MockPrinter] Paper cut command sent")
+	// Generate QR ESC/POS commands
+	escpos, err := qr.GenerateQRESCPOS(ciphertext)
+	if err != nil {
+		return fmt.Errorf("failed to generate QR: %w", err)
+	}
+
+	log.Printf("[MockPrinter] Print job received (%d bytes ciphertext)", len(ciphertext))
+	log.Printf("[MockPrinter] Generated QR ESC/POS output: %d bytes", len(escpos))
+	if len(escpos) > 0 {
+		// Log first 100 bytes as hex for debugging
+		preview := escpos
+		if len(preview) > 100 {
+			preview = preview[:100]
+		}
+		log.Printf("[MockPrinter] ESC/POS header hex: %x", preview)
+	}
 
 	return nil
 }

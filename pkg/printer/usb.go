@@ -5,6 +5,8 @@ import (
 	"log"
 	"os"
 	"strings"
+
+	"github.com/zerodrop/terminal/pkg/qr"
 )
 
 // Known thermal printer VID:PID pairs (58mm thermal printers)
@@ -150,7 +152,7 @@ func identifyDevice(devicePath string) (string, error) {
 	return "Generic ESC/POS printer (unidentified)", nil
 }
 
-// Print writes ESC/POS commands to the USB printer
+// Print writes QR code ESC/POS commands to the USB printer
 func (p *USBPrinter) Print(ciphertext []byte) error {
 	if !p.available {
 		return fmt.Errorf("printer is not available")
@@ -164,47 +166,20 @@ func (p *USBPrinter) Print(ciphertext []byte) error {
 	}
 	defer file.Close()
 
-	// Send ESC/POS commands
-	// 1. Initialize printer
-	init := []byte{0x1B, 0x40}
-	if _, err := file.Write(init); err != nil {
-		return fmt.Errorf("failed to initialize printer: %w", err)
+	// Generate QR ESC/POS commands
+	escpos, err := qr.GenerateQRESCPOS(ciphertext)
+	if err != nil {
+		return fmt.Errorf("failed to generate QR: %w", err)
 	}
 
-	// 2. Set alignment (center)
-	align := []byte{0x1B, 0x61, 0x01}
-	if _, err := file.Write(align); err != nil {
-		return fmt.Errorf("failed to set alignment: %w", err)
+	// Write ESC/POS commands to printer
+	if _, err := file.Write(escpos); err != nil {
+		p.available = false
+		return fmt.Errorf("failed to write to printer: %w", err)
 	}
 
-	// 3. Print QR code placeholder (for now, print ciphertext as text)
-	// TODO: Implement actual QR code rasterization in M-04 refinement
-	caption := []byte("\n\nZERO DROP ENCRYPTED PAYLOAD\n\n")
-	if _, err := file.Write(caption); err != nil {
-		return fmt.Errorf("failed to print caption: %w", err)
-	}
-
-	// Print ciphertext (max 48 chars per line for 58mm paper)
-	payload := string(ciphertext)
-	for i := 0; i < len(payload); i += 48 {
-		end := i + 48
-		if end > len(payload) {
-			end = len(payload)
-		}
-		line := payload[i:end] + "\n"
-		if _, err := file.Write([]byte(line)); err != nil {
-			return fmt.Errorf("failed to print payload line: %w", err)
-		}
-	}
-
-	// 4. Feed and cut
-	feedAndCut := []byte{0x1B, 0x64, 0x05, // Feed 5 lines
-		0x1D, 0x56, 0x42, 0x00} // Partial cut
-	if _, err := file.Write(feedAndCut); err != nil {
-		return fmt.Errorf("failed to feed and cut: %w", err)
-	}
-
-	log.Printf("[USBPrinter] Print job sent to %s", p.devicePath)
+	log.Printf("[USBPrinter] Print job sent to %s (%d bytes, %d ciphertext bytes)",
+		p.devicePath, len(escpos), len(ciphertext))
 	return nil
 }
 

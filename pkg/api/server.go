@@ -52,7 +52,17 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("/drop", s.handleDrop).Methods(http.MethodPost)
 	s.router.HandleFunc("/health", s.handleHealth).Methods(http.MethodGet)
 
-	// Serve static files (frontend)
+	// Serve static directory (reader.html, jsqr.min.js, etc.)
+	s.router.PathPrefix("/static/").Handler(
+		http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))),
+	)
+
+	// Also serve reader.html at root level for convenience
+	s.router.Handle("/reader.html", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./static/reader.html")
+	}))
+
+	// Serve frontend SPA (all other routes)
 	spaHandler := spaHandler{staticFilePath: "./frontend/dist", indexPath: "index.html"}
 	s.router.PathPrefix("/").Handler(spaHandler)
 }
@@ -73,21 +83,46 @@ func (s *Server) handleGetKey(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleHealth returns server health status
+// Returns HTTP 200 if the system is operational, HTTP 503 if printer is unavailable
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
 
 	health := map[string]interface{}{
 		"status":  "healthy",
 		"service": "zerodrop-terminal",
 	}
 
-	// Add printer health if available
-	if hc, ok := s.printer.(interface{ HealthCheck() map[string]interface{} }); ok {
-		printerHealth := hc.HealthCheck()
+	// Check printer availability
+	if checker, ok := s.printer.(interface{ IsAvailable() bool }); ok {
+		available := checker.IsAvailable()
+		printerHealth := map[string]interface{}{
+			"available": available,
+		}
+
+		// Add printer type if HealthCheck is available
+		if hc, ok := s.printer.(interface{ HealthCheck() map[string]interface{} }); ok {
+			printerInfo := hc.HealthCheck()
+			for k, v := range printerInfo {
+				printerHealth[k] = v
+			}
+		}
+
 		health["printer"] = printerHealth
+
+		if !available {
+			health["status"] = "unhealthy"
+			w.WriteHeader(http.StatusServiceUnavailable) // 503
+			json.NewEncoder(w).Encode(health)
+			return
+		}
 	}
 
+	// Also add printer info if available and healthy
+	if hc, ok := s.printer.(interface{ HealthCheck() map[string]interface{} }); ok {
+		health["printer"] = hc.HealthCheck()
+	}
+
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(health)
 }
 
@@ -101,9 +136,9 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate payload length (including ZD1: prefix, max 250 chars)
-	if len(req.Payload) > 250 {
-		http.Error(w, "Payload exceeds 250 character limit", http.StatusBadRequest)
+	// Validate payload length (including ZD1: prefix, max 400 chars)
+	if len(req.Payload) > 400 {
+		http.Error(w, "Payload exceeds 400 character limit", http.StatusBadRequest)
 		log.Printf("Payload too long: %d chars", len(req.Payload))
 		return
 	}

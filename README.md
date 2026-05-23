@@ -43,7 +43,7 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 - **Physical QR Code Output** — Encrypted payloads are printed as scannable QR codes on 58mm thermal paper via ESC/POS protocol.
 - **Ephemeral Processing** — No database. Data exists in RAM only during the print job, then is securely zeroed.
 - **Burn Protocol** — The private key is generated at startup, logged for the operator as a scannable QR code, then destroyed from server memory.
-- **Offline Decryption** — Recipients use `static/reader.html` to scan QR codes and decrypt data entirely offline — no external dependencies, no network calls.
+- **Offline Decryption** — Recipients use `static/reader.html` with jsQR camera scanning and real X25519 ECDH + AES-256-GCM decryption — no external dependencies, no network calls.
 - **Asynchronous Print Spooler** — Buffered Go channel worker pool with retry logic (3 attempts, exponential backoff) and graceful shutdown draining.
 - **Hardware Abstraction** — Supports Mock Printer (stdout logging) and USB Printer (auto-detection of 10+ models with graceful fallback).
 - **Production-Grade Infrastructure** — Docker Compose deployment with Traefik reverse proxy, rate limiting (5 req/hr/IP), TLS termination, and health checks.
@@ -115,6 +115,7 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 | **ZD1: payload prefix** | Forward-compatible version header for the QR payload format. |
 | **Dual API paths** | Both `/api/*` and legacy `/*` routes are supported for backward compatibility. |
 | **Buffered spooler channel** | Non-blocking job submission with 10-job buffer. Returns 503 if spooler is full. |
+| **ECIES protocol** | X25519 ECDH + AES-256-GCM across all layers. Payload: `ZD1:base64(ephPubKey+iv+ciphertextWithTag)`. Ephemeral public key enables stateless offline decryption. |
 
 ---
 
@@ -135,7 +136,7 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 | Component | Technology | Purpose |
 |-----------|------------|---------|
 | **Backend** | Go 1.26+ | HTTP server, crypto, printer control, job spooler |
-| **Crypto** | Curve25519 (X25519) via `crypto/ecdh` | Public-key cryptography |
+| **Crypto** | Curve25519 (X25519 ECDH) + AES-256-GCM | ECIES encryption chain (Go `crypto/ecdh` + Web Crypto API) |
 | **HTTP Router** | gorilla/mux | Route handling and SPA fallback |
 | **QR Code** | go-qrcode (skip2) | QR code generation in Go |
 | **Frontend** | React 18 + TypeScript | Web-based submission portal |
@@ -145,6 +146,7 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 | **Containers** | Docker + Docker Compose | Deployment and infrastructure |
 | **Reverse Proxy** | Traefik v2.10 | TLS termination, rate limiting, health checks |
 | **Printer Protocol** | ESC/POS | Thermal printer communication |
+| **QR Decoding (Offline)** | jsQR v1.4.0 | Local QR scanning in reader.html (no network) |
 | **Testing** | Go testing framework | Unit and integration tests |
 
 ---
@@ -158,7 +160,7 @@ zerodrop/
 │       └── main.go              # Application entry point, wiring, graceful shutdown
 ├── pkg/
 │   ├── api/
-│   │   └── server.go            # HTTP server, route handlers, SPA serving
+│   │   └── server.go            # HTTP server, route handlers, SPA serving, health 503
 │   ├── config/
 │   │   ├── config.go            # Environment variable loading and validation
 │   │   └── config_test.go       # Config tests (9 test cases)
@@ -169,10 +171,12 @@ zerodrop/
 │   │   └── observability.go     # Structured JSON logger, shutdown handler
 │   ├── printer/
 │   │   ├── printer.go           # Printer interface, HealthChecker, Reconnector
-│   │   ├── mock.go              # MockPrinter (stdout logging for testing/CI)
+│   │   ├── mock.go              # MockPrinter (QR ESC/POS + hex preview for testing/CI)
 │   │   ├── usb.go               # USBPrinter with auto-detection of 10+ printer models
 │   │   ├── usb_test.go          # USB printer tests
 │   │   └── printer_test.go      # Printer interface tests
+│   ├── qr/
+│   │   └── qr.go                # QR code generation + ESC/POS GS v 0 rasterization
 │   └── spooler/
 │       └── spooler.go           # Buffered channel worker pool, retry logic, memory zeroing
 ├── frontend/
@@ -201,7 +205,8 @@ zerodrop/
 │   ├── postcss.config.js        # PostCSS configuration
 │   └── package.json             # Node dependencies and scripts
 ├── static/
-│   └── reader.html              # Offline QR code decryption utility (works offline, no deps)
+│   ├── reader.html              # Offline QR code decryption utility (works offline, no CDN)
+│   └── jsqr.min.js              # jsQR v1.4.0 — local QR decoding for offline reader
 ├── infrastructure/
 │   └── traefik/
 │       └── traefik.yml          # Traefik static configuration (HTTPS, rate limiting)
@@ -361,7 +366,7 @@ Submits an encrypted payload for printing as a QR code.
 ```
 
 **Validation rules:**
-- Maximum payload length: 250 characters (including `ZD1:` prefix)
+- Maximum payload length: 400 characters (including `ZD1:` prefix)
 - Must start with `ZD1:` version header (for forward compatibility)
 - Remainder must be valid base64 encoding
 
@@ -402,7 +407,8 @@ The `printer` object varies by printer type:
 - **USBPrinter**: `type: "usb"`, `available`, `device_path`, `model`, `mode`
 
 **Status codes:**
-- `200` — Server is healthy (always, as this is an application-level check)
+- `200` — Server is healthy and printer is available
+- `503` — Server is running but printer is unavailable (payloads will be rejected)
 
 ---
 
@@ -413,7 +419,7 @@ All configuration is via environment variables.
 | Variable | Required | Default | Valid Values | Description |
 |----------|----------|---------|-------------|-------------|
 | `PRINTER_TYPE` | **Yes** | — | `mock`, `usb`, `tcp` | Printer implementation |
-| `PRINTER_DEVICE` | No* | `/dev/usb/lp0` | Device path or empty | USB printer device path (`""` = auto-detect) |
+| `PRINTER_DEVICE` | No* | `""` (auto-detect) | Device path or empty | USB printer device path (empty = auto-detect from `/dev/usb/lp*`, `/dev/lp*`, `/dev/ttyUSB*`) |
 | `PUBLIC_KEY_PATH` | No | `./data/public_key.pem` | File path | Where to save/load the public key |
 | `RATE_LIMIT_REQUESTS_PER_HOUR` | No | `5` | Integer ≥ 1 | Max requests per IP per hour (Traefik) |
 | `RATE_LIMIT_BURST` | No | `1` | Integer ≥ 1 | Burst capacity for rate limiter |
@@ -552,8 +558,9 @@ make ci
 |---------|-------|-------------|
 | `pkg/config` | 9 | Default values, env var parsing, validation of printer type, device path, rate limits, log flag |
 | `pkg/crypto` | 6 | Key pair generation, PEM file save, QR logging, Burn Protocol memory zeroing, fingerprint format, key initialization |
-| `pkg/printer` | 2 test files | Mock printer operations, USB printer behavior |
-| Integration | — | Server startup, health endpoint, key endpoint |
+| `pkg/printer` | 2 test files (14 tests) | Mock printer operations, USB printer auto-detection, health check, device identification |
+| `pkg/qr` | — | QR code generation + ESC/POS rasterization (no test file yet) |
+| Integration | — | Server startup, health endpoint (including 503), key endpoint |
 
 ---
 
@@ -646,18 +653,20 @@ docker-compose logs -f zerodrop
 
 The `static/reader.html` file is a standalone, fully offline decryption tool:
 
-- **No external dependencies** — Pure HTML/CSS/JavaScript, no CDN links, no npm packages
-- **Camera QR scanning** — Uses the WebRTC `getUserMedia` API to scan QR codes via device camera
-- **PEM key import** — Supports importing private keys in PEM format (PKCS#8)
-- **Web Crypto API** — All decryption uses browser-native cryptography
+- **No external dependencies** — Pure HTML/CSS/JavaScript, no CDN links, no npm packages (jsQR saved locally)
+- **Camera QR scanning** — Uses jsQR v1.4.0 (saved locally as `static/jsqr.min.js`) to decode QR codes from the device camera via WebRTC `getUserMedia`
+- **Real ECDH decryption** — Implements full X25519 ECDH + AES-256-GCM decryption using Web Crypto API (same algorithm as the submission portal)
+- **PEM key import** — Supports importing private keys in PEM format (PKCS#8) with proper binary DER parsing
 - **Zero network calls** — Opens and works entirely offline after the initial page load
 - **Key fingerprinting** — Displays the SHA-256 fingerprint of the derived public key for verification
 
 **Usage:**
 1. Open `static/reader.html` in a browser (works offline)
-2. Scan the QR code printed by ZeroDrop using your device camera
-3. Paste the private key (logged as QR code during server startup)
+2. Click "Start Camera" and scan the QR code printed by ZeroDrop
+3. Paste the private key (logged as QR code during server startup, or copy from operator console output)
 4. Click "Decrypt" to reveal the plaintext message
+
+**Payload format:** `ZD1:base64(ephemeralPubKey(32) + iv(12) + aesCiphertextWithTag)` — the ephemeral public key enables stateless decryption without any server involvement.
 
 ---
 

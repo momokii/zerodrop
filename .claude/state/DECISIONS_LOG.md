@@ -221,3 +221,63 @@
 **Alternatives Rejected:** Extending main Makefile (bloats dev experience), ansible/chef (overkill for single-app deployment), manual scripts (error-prone).
 **Security Implications:** Positive — includes security checks (vet, vulnscan, race detection) in deployment workflow. Backup/restore for critical public key.
 **Impact:** `Makefile.deploy` provides 30+ production operations targets. Single source of truth for deployment procedures.
+
+---
+
+**Decision:** ECIES Protocol — X25519 ECDH + AES-256-GCM for All Layers
+**Date:** 2026-05-23
+**Context:** M-05 initially used a stub/simulated encryption (btoa concatenation). PRD audit revealed the crypto chain was not real ECIES. Needed actual implementation across frontend, server, and offline reader.
+**Rationale:** X25519 ECDH for key agreement + AES-256-GCM for authenticated encryption provides a standard ECIES (Elliptic Curve Integrated Encryption Scheme). Both algorithms are natively supported by Web Crypto API (browser) and Go stdlib (server). The payload format is `ZD1:base64(ephPubKeyRaw(32)+iv(12)+aesCiphertextWithTag)` — ephemeral public key enables stateless decryption without server involvement.
+**Alternatives Rejected:** NaCl/libsodium (external dep for browser), RSA-OAEP (large ciphertext expansion), btoa-only (no actual encryption).
+**Security Implications:** Critical — this is the core zero-knowledge guarantee. Real ECDH + AEAD ensures only the holder of the corresponding private key can decrypt. Ephemeral keys provide forward secrecy per encryption.
+**Impact:** `frontend/src/lib/crypto.ts` rewritten with `encryptData()`/`decryptData()`. `static/reader.html` implements real decrypt. `pkg/qr/qr.go` formats payload as `ZD1:base64(...)` for QR. Payload size increased from ~250 to ~400 chars due to 60-byte overhead.
+
+---
+
+**Decision:** QR Rasterization — go-qrcode + ESC/POS GS v 0
+**Date:** 2026-05-23
+**Context:** M-03 and M-04 used ciphertext text printing instead of actual QR codes. PRD audit flagged QR code output as not implemented.
+**Rationale:** Use `skip2/go-qrcode` library (already a dependency) to generate QR bitmaps with Medium error correction. Rasterize to ESC/POS `GS v 0` bit-image commands (m=0 normal density) for 58mm thermal printers. Private key is logged as both QR PNG (`qr.GenerateQRPNG`) and PEM text fallback.
+**Alternatives Rejected:** Printer-native QR commands (not universally supported), text-only output (defeats purpose of QR for offline scanning), high-density mode (compatibility issues with cheaper printers).
+**Security Implications:** Positive — QR codes contain only encrypted ciphertext. Medium error correction provides readability even with minor print defects.
+**Impact:** `pkg/qr/qr.go` created with `GenerateQRESCPOS()` and `GenerateQRPNG()`. `pkg/printer/mock.go` and `usb.go` updated to use QR rasterization. `pkg/crypto/crypto.go` logs private key as QR PNG.
+
+---
+
+**Decision:** Payload Limit Increase — 250 to 400 Characters
+**Date:** 2026-05-23
+**Context:** PRD specified 250-char max payload. Real ECDH + AEAD adds 60 bytes overhead (32-byte ephemeral pubkey + 12-byte IV + 16-byte GCM tag), reducing usable plaintext space. 250 chars was too tight for 185-char plaintext target.
+**Rationale:** Increased to 400 characters to accommodate the ECIES overhead while keeping the printed QR scannable. At Medium error correction and 256px PNG, a 400-char payload still produces a scannable QR code.
+**Alternatives Rejected:** Keeping 250 (insufficient plaintext for real credentials), using smaller keys (X25519 is fixed at 32 bytes), compressing plaintext (added complexity, minimal gain).
+**Security Implications:** Neutral — larger QR codes have slightly more density but remain scannable. No security tradeoff.
+**Impact:** API server validation (pkg/api) and frontend validation (api.ts, App.tsx) updated from 250 to 400. PRD FR-007 updated.
+
+---
+
+**Decision:** Health Check — HTTP 503 When Printer Unavailable
+**Date:** 2026-05-23
+**Context:** `GET /health` always returned HTTP 200 regardless of printer state. PRD required the health endpoint to reflect actual system readiness.
+**Rationale:** Extended health handler to check printer availability via the `IsAvailable()` method from the `Printer` interface. Returns HTTP 503 when printer is unavailable with `status: "unhealthy"`. Returns 200 with full printer details when healthy.
+**Alternatives Rejected:** Always-200 (misleading health checks), separate printer health endpoint (unnecessary complexity).
+**Security Implications:** Neutral — health endpoint is read-only. 503 doesn't leak sensitive information.
+**Impact:** `pkg/api/server.go` handleHealth() updated. Uses type assertion `interface{ IsAvailable() bool }` for printer availability check. Mock and USB printers both implement `IsAvailable()`.
+
+---
+
+**Decision:** Docker USB Permissions — group_add Instead of Privileged Mode
+**Date:** 2026-05-23
+**Context:** Production Docker container needed USB printer device access. Previous config used only `devices:` mapping which may fail when the container's user lacks group permissions for the mapped device.
+**Rationale:** Added `group_add: [dialout, lp]` to docker-compose.prod.yml. The `dialout` group covers USB serial devices; `lp` covers printer devices. Combined with `devices:` mapping, this ensures the `zerodrop` non-root user can read/write the printer device without full container privileges.
+**Alternatives Rejected:** `privileged: true` (massive security risk), no group_add (device mapping may fail for non-root), running as root (violates security standards).
+**Security Implications:** Positive — grants only the specific group permissions needed without privilege escalation.
+**Impact:** `docker-compose.prod.yml` updated with `group_add` under the zerodrop service.
+
+---
+
+**Decision:** FR-034 Correction — PRINTER_DEVICE Optional with Auto-Detection
+**Date:** 2026-05-23
+**Context:** PRD FR-034 specified `PRINTER_DEVICE` as required. The implementation already made it optional with auto-detection, and the PRD was inaccurate.
+**Rationale:** Corrected FR-034 to reflect actual behavior: `PRINTER_DEVICE` is optional. When empty, the system auto-detects USB printers from known device paths (`/dev/usb/lp*`, `/dev/lp*`, `/dev/ttyUSB*`). If auto-detection fails, gracefully falls back to Mock Printer. This is better UX than requiring an explicit device path.
+**Alternatives Rejected:** Keep PRD requiring explicit device path (operational burden, contradicts implemented behavior).
+**Security Implications:** Neutral — device auto-detection doesn't change security posture.
+**Impact:** PRD FR-034 updated to reflect optional `PRINTER_DEVICE` with auto-detection and Mock Printer fallback.

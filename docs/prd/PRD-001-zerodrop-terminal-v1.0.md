@@ -92,7 +92,7 @@ Threat models have evolved. Server compromise is no longer a theoretical risk �
 | FR-004 | The private key shredding shall use explicit memory zeroing with `runtime.KeepAlive()` to prevent compiler optimization. | US-003 | `pkg/crypto` |
 | FR-005 | The system shall expose `GET /key` which returns the `public_key.pem` file as `text/plain` with HTTP 200. | US-001 | `pkg/api` |
 | FR-006 | The system shall expose `POST /drop` which accepts JSON `{ "payload": "<base64-ciphertext>" }` and returns HTTP 202 Accepted immediately. | US-004, US-005 | `pkg/api` |
-| FR-007 | The `POST /drop` endpoint shall validate that the payload length is ≤ 250 characters and return HTTP 400 if exceeded. | US-006 | `pkg/api` |
+| FR-007 | The `POST /drop` endpoint shall validate that the payload length is ≤ 400 characters and return HTTP 400 if exceeded. | US-006 | `pkg/api` |
 | FR-008 | The `POST /drop` endpoint shall validate that the payload is valid base64 and return HTTP 400 if invalid. | US-004 | `pkg/api` |
 | FR-009 | The `POST /drop` endpoint shall push the payload to a buffered Go channel (spooler) and return immediately without waiting for print completion. | US-005 | `pkg/api`, `pkg/spooler` |
 | FR-010 | The spooler shall process payloads sequentially using a worker pool, pulling from the channel and passing each payload to the `Printer` interface. | US-005 | `pkg/spooler` |
@@ -109,18 +109,18 @@ Threat models have evolved. Server compromise is no longer a theoretical risk �
 | FR-021 | The submission portal shall encrypt the plaintext payload using ECDH (Curve25519) and export the ciphertext as base64. | US-004 | Frontend |
 | FR-022 | The submission portal shall prefix the base64 ciphertext with `ZD1:` (version header) before transmission. | US-004 | Frontend |
 | FR-023 | The submission portal shall validate the payload length is ≤ 185 characters of plaintext before encryption and display an error using shadcn/ui Alert component if exceeded. | US-006 | Frontend |
-| FR-024 | The submission portal shall submit the payload to `POST /drop` and display status using shadcn/ui components: "Encrypting...", "Transmitting...", "Safely Dropped." | US-005 | Frontend |
-| FR-024 | The `reader.html` file shall be a standalone HTML file with embedded Vanilla JS that decrypts QR codes offline using Web Crypto API. | US-007 | `reader.html` |
+| FR-024a | The submission portal shall submit the payload to `POST /drop` and display status using shadcn/ui components: "Encrypting...", "Transmitting...", "Safely Dropped." | US-005 | Frontend |
+| FR-024b | The `reader.html` file shall be a standalone HTML file with embedded Vanilla JS and the jsQR library that decrypts QR codes offline using Web Crypto API (X25519 ECDH + AES-256-GCM). | US-007 | `reader.html` |
 | FR-025 | The `reader.html` file shall access the device webcam using `navigator.mediaDevices.getUserMedia()` to scan QR codes. | US-007 | `reader.html` |
 | FR-026 | The `reader.html` file shall parse the QR code, strip the `ZD1:` prefix, and decode the remaining base64 to ciphertext. | US-007 | `reader.html` |
 | FR-027 | The `reader.html` file shall prompt the user to paste the private key (in PEM format) and import it using `window.crypto.subtle.importKey("pkcs8", ...)`. | US-007, US-008 | `reader.html` |
 | FR-028 | The `reader.html` file shall decrypt the ciphertext using ECDH (Curve25519) and display the plaintext on screen. | US-007 | `reader.html` |
 | FR-029 | The `reader.html` file shall compute and display a SHA-256 fingerprint of the imported public key for verification against the server's logged fingerprint. | US-008 | `reader.html` |
-| FR-030 | The system shall expose `GET /health` which returns HTTP 200 if the system is operational, HTTP 503 if the printer is disconnected. | US-009 | `pkg/api` |
+| FR-030 | The system shall expose `GET /health` which returns HTTP 200 if the system is operational, HTTP 503 if the printer is disconnected. The printer's `IsAvailable()` method determines availability. | US-009 | `pkg/api` |
 | FR-031 | The system shall log the SHA-256 fingerprint of the public key on startup in the format `PUBLIC_KEY_FINGERPRINT: <hex-string>`. | US-008 | `pkg/crypto` |
 | FR-032 | The system shall handle SIGTERM and SIGINT signals by stopping acceptance of new requests, waiting for the spooler to drain (max 30 seconds), and then exiting. | US-010 | `pkg/spooler` |
 | FR-033 | The system shall validate required environment variables on startup and exit with error code 1 if any are missing or invalid. | US-001 | `pkg/config` |
-| FR-034 | Required environment variables are: `PRINTER_DEVICE` (path to device file), `PRINTER_TYPE` (one of: `mock`, `usb`). | US-001 | `pkg/config` |
+| FR-034 | Required environment variable: `PRINTER_TYPE` (one of: `mock`, `usb`). `PRINTER_DEVICE` is optional — when empty, USB printers are auto-detected from known device paths. If auto-detection fails, the system falls back to Mock Printer. | US-001 | `pkg/config` |
 | FR-035 | Optional environment variables are: `RATE_LIMIT_REQUESTS_PER_HOUR` (default: 5), `RATE_LIMIT_BURST` (default: 1), `LOG_ENABLED` (default: false). | US-001 | `pkg/config` |
 | FR-036 | The system shall validate that `PRINTER_DEVICE` exists and is writable if `PRINTER_TYPE=usb`. | US-001 | `pkg/config` |
 | FR-037 | The system shall use structured JSON logging (when `LOG_ENABLED=true`) and never log private keys, payloads, or submission metadata. | US-001 | `pkg/observability` |
@@ -146,7 +146,7 @@ Threat models have evolved. Server compromise is no longer a theoretical risk �
 | NFR-S-009 | The `reader.html` file shall perform all decryption operations locally in the browser using Web Crypto API with no network requests after initial load. |
 | NFR-S-010 | The submission portal shall perform all encryption operations locally in the browser using Web Crypto API before any network transmission. |
 | NFR-S-011 | Rate limiting (5 req/IP/hour) mitigates DDoS and hardware exhaustion attacks. |
-| NFR-S-012 | The 250-character payload limit (246 after `ZD1:` prefix) prevents QR density that exceeds scanner capabilities. |
+| NFR-S-012 | The 400-character payload limit (396 after `ZD1:` prefix) prevents QR density that exceeds scanner capabilities. |
 | NFR-S-013 | Structured logging shall explicitly exclude: private keys, payload plaintext, payload ciphertext, submission IP addresses, submission timestamps. |
 
 ### Performance (NFR-P-XXX)
@@ -240,7 +240,7 @@ ZD1:<base64-encoded-ciphertext>
 
 - `ZD1:`: Version header (4 characters).
 - `<base64-encoded-ciphertext>`: Base64-encoded ciphertext from ECDH encryption.
-- Total length ≤ 250 characters.
+- Total length ≤ 400 characters.
 
 #### Key Provisioning & Burn Protocol
 
@@ -325,7 +325,7 @@ Review of all design decisions in Section 7 against the zero-knowledge constrain
 
 | Existing Threat | Impact | Mitigation |
 |-----------------|--------|------------|
-| **DDoS / Hardware Exhaustion** | No impact | Rate limiting (5 req/IP/hour) + 250-char payload cap. |
+| **DDoS / Hardware Exhaustion** | No impact | Rate limiting (5 req/IP/hour) + 400-char payload cap. |
 | **Server Compromise (Root Access)** | No impact | Zero-knowledge architecture: server never has private key. |
 | **Memory Scraping (Cold Boot Attacks)** | Strengthened | Burn Protocol with `runtime.KeepAlive()` ensures memory zeroing. |
 | **Static Vulnerabilities** | No impact | Static analysis tooling mandated. |
@@ -352,14 +352,14 @@ Review of all design decisions in Section 7 against the zero-knowledge constrain
 |---------|----------|------------------|
 | `pkg/crypto` | Key generation | Produces valid X25519 key pair; public key is exportable as PEM. |
 | `pkg/crypto` | Burn Protocol | Private key byte slice is zeroed; `runtime.KeepAlive()` prevents optimization. |
-| `pkg/config` | Env var validation | Missing `PRINTER_DEVICE` returns error; invalid `PRINTER_TYPE` returns error. |
+| `pkg/config` | Env var validation | `PRINTER_DEVICE` is optional (empty = auto-detect USB printer, falls back to mock); invalid `PRINTER_TYPE` returns error. |
 | `pkg/printer` | QR generation | Produces monochrome byte matrix; QR is scannable by standard readers. |
 | `pkg/printer` | ESC/POS rasterization | Output bytes are valid ESC/POS commands; `GS v 0` format is correct. |
 | `pkg/spooler` | Job queue | Payloads are processed sequentially; queue drains before exit. |
 | `pkg/spooler` | Memory zeroing | Payload buffer is zeroed after print job completes. |
 | `pkg/api` | `GET /key` | Returns public key as `text/plain` with HTTP 200. |
 | `pkg/api` | `POST /drop` valid | Returns HTTP 202; payload is queued to spooler. |
-| `pkg/api` | `POST /drop` invalid | Returns HTTP 400 if payload > 250 chars or invalid base64. |
+| `pkg/api` | `POST /drop` invalid | Returns HTTP 400 if payload > 400 chars or invalid base64. |
 | `pkg/api` | `GET /health` | Returns HTTP 200 if printer available, HTTP 503 if not. |
 
 ### Integration Tests

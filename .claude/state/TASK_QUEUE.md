@@ -65,7 +65,7 @@
 | Status              | **DONE**                                                                                   |
 | Complexity          | L                                                                                          |
 | Depends On          | M-02                                                                                       |
-| Scope               | Implement `pkg/printer` (Printer interface, Mock Printer, QR simulation), create `static/reader.html`. |
+| Scope               | Implement `pkg/printer` (Printer interface, Mock Printer, QR ciphertext logging), create `static/reader.html` stub. QR generation deferred to M-04; real ECDH decrypt added post M-05. |
 | Acceptance Criteria | AC-009 (Mock Printer); AC-015, AC-016 (`reader.html`)                                      |
 | Security Concerns   | `reader.html` must perform all decryption locally. No external dependencies. QR format must match spec. |
 
@@ -81,7 +81,7 @@
 | Status              | **DONE**                                                                                           |
 | Complexity          | M                                                                                                 |
 | Depends On          | M-03                                                                                              |
-| Scope               | Implement USB Printer with auto-detection, `GET /health` endpoint, graceful shutdown, Docker configuration. |
+| Scope               | Implement USB Printer with auto-detection, `GET /health` endpoint (enhanced post M-05 with 503), graceful shutdown, Docker configuration, QR ESC/POS rasterization in `pkg/qr/qr.go`. |
 | Acceptance Criteria | AC-010, AC-017, AC-018 (USB printer, health check); AC-020 (graceful shutdown); AC-025 (Docker) |
 | Security Concerns   | USB device permissions must be configured correctly (no privileged mode). Graceful shutdown must drain spooler. |
 
@@ -97,7 +97,7 @@
 | Status              | **DONE**                                                                                                           |
 | Complexity          | L                                                                                                                  |
 | Depends On          | M-04                                                                                                               |
-| Scope               | Implement submission portal (React + Vite + shadcn/ui), Web Crypto API encryption, SPA serving, documentation. |
+| Scope               | Implement submission portal (React + Vite + shadcn/ui), Web Crypto API encryption (real X25519 ECDH + AES-256-GCM added post M-05), SPA serving, documentation. |
 | Acceptance Criteria | AC-002, AC-012, AC-013, AC-014, AC-019 (frontend and encryption); AC-024 (Traefik rate limiting)            |
 | Security Concerns   | Submission portal must encrypt in browser using Web Crypto API. No external CDN dependencies. SPA served by backend. |
 
@@ -201,9 +201,10 @@ Created `Makefile.deploy` with comprehensive production operations:
 
 ### Future Enhancements (v1.1+)
 
-- Full ECDH encryption in `reader.html`
-- Multi-printer support
+- Multi-printer support (multiple USB printers or mixed mock/usb)
 - Admin dashboard for print queue monitoring
-- Metrics export (Prometheus)
-- Enhanced QR code with error correction
+- Metrics export (Prometheus) for spooler depth, print times, error rates
 - Mobile app for on-the-go decryption
+- Private key QR scanning from reader.html (scan operator's QR to import private key)
+- TCP network printer support (for shared network thermal printers)
+- Configurable QR code size / error correction level per job

@@ -53,14 +53,16 @@ docs/
 
 pkg/                          # Go packages (M-01 through M-04 complete)
 ├── crypto/                   # ✅ ECC key generation, Burn Protocol
-├── api/                      # ✅ HTTP server, endpoints, health check, SPA serving
+├── api/                      # ✅ HTTP server, endpoints, health check (503), SPA serving
 ├── printer/                  # ✅ Printer interface, Mock Printer, USB Printer (auto-detect)
+├── qr/                       # ✅ QR code generation + ESC/POS GS v 0 rasterization
 ├── spooler/                  # ✅ Asynchronous print job queue
 ├── config/                   # ✅ Environment variable validation
 └── observability/            # ✅ Structured logging, health check, graceful shutdown
 
 static/                       # Web assets
-└── reader.html               # ✅ Offline decryption utility
+├── reader.html               # ✅ Offline decryption utility (jsQR + real ECDH decrypt)
+└── jsqr.min.js               # ✅ jsQR v1.4.0 — local QR decoding for offline reader
 
 cmd/
 └── zerodrop/
@@ -105,12 +107,12 @@ docker-compose.traefik.yml    # ✅ Traefik integration
 
 ## Current Task State
 
-- **Status file:** `state/CURRENT_STATUS.md` — **M-05 Complete** — Ready for production
-- **Task backlog:** `state/TASK_QUEUE.md` — 5 milestones (ALL DONE ✅)
-- **Decision history:** `state/DECISIONS_LOG.md` — 24 decisions logged
-- **PRD:** `docs/prd/PRD-001-zerodrop-terminal-v1.0.md` — complete requirements
+- **Status file:** `state/CURRENT_STATUS.md` — **M-05 Complete + ECIES Crypto Chain** — Production ready
+- **Task backlog:** `state/TASK_QUEUE.md` — 5 milestones (ALL DONE ✅) + session 10 ECIES/QR/health/limit updates
+- **Decision history:** `state/DECISIONS_LOG.md` — 30 decisions logged (24 original + 6 from session 10)
+- **PRD:** `docs/prd/PRD-001-zerodrop-terminal-v1.0.md` — updated with 400-char limit, FR-024 split, FR-030/FR-034 corrections
 
-**Project Status:** ZeroDrop Terminal v1.0 is **PRODUCTION READY**.
+**Project Status:** ZeroDrop Terminal v1.0 is **PRODUCTION READY** with full ECIES encryption chain (X25519 ECDH + AES-256-GCM) across all layers, QR ESC/POS rasterization, and health check 503 support.
 
 ---
 
@@ -142,8 +144,11 @@ This is not optional. Keeping `.claude/` accurate is part of every task.
 
 - **Single printer**: v1.0 supports one thermal printer (multi-printer deferred to v1.1+)
 - **React + shadcn/ui**: Pre-built components for professional UI, fast implementation, simple to maintain
+- **ECIES protocol**: X25519 ECDH + AES-256-GCM across all layers; payload = `ZD1:base64(ephPubKey+iv+ciphertextWithTag)`
 - **QR version header**: `ZD1:` prefix for forward compatibility
+- **QR rasterization**: go-qrcode (Medium error correction) + ESC/POS GS v 0 bit-image commands
 - **Key fingerprinting**: SHA-256 hash logged on startup for operator verification
+- **Health check 503**: `/health` returns 503 when printer unavailable via `IsAvailable()`
 - **Graceful shutdown**: 30-second spooler drain timeout (configurable)
 - **USB auto-detection**: Scans for 10+ thermal printer models, falls back to Mock Printer
 
@@ -152,16 +157,18 @@ This is not optional. Keeping `.claude/` accurate is part of every task.
 | Component | Technology | Status |
 |-----------|------------|--------|
 | Backend | Go 1.26+ | ✅ Implemented |
-| Crypto | Curve25519 (X25519) via `crypto/ecdh` | ✅ Implemented |
+| Crypto | X25519 ECDH + AES-256-GCM (ECIES) via Go `crypto/ecdh` + Web Crypto API | ✅ Implemented |
 | API | gorilla/mux | ✅ Implemented |
+| QR Generation | go-qrcode (skip2) + ESC/POS GS v 0 rasterization | ✅ Implemented |
 | Spooler | Buffered channel + worker pool | ✅ Implemented |
 | Printer | Mock Printer + USB Printer (auto-detect) | ✅ Implemented |
-| Health Check | Enhanced with printer status | ✅ Implemented |
+| Health Check | Enhanced with printer status + 503 when unavailable | ✅ Implemented |
 | SPA Serving | Go http.FileServer with fallback | ✅ Implemented |
 | Docker | Multi-stage build, Alpine-based | ✅ Implemented |
 | Traefik | Reverse proxy + rate limiting | ✅ Configured |
 | Frontend | React + Vite + shadcn/ui + TypeScript | ✅ Implemented |
-| Web Crypto | X25519 encryption in browser | ✅ Implemented |
+| Web Crypto | X25519 ECDH + AES-256-GCM encryption/decryption in browser | ✅ Implemented |
+| Offline Decoding | jsQR v1.4.0 (local file, no network) | ✅ Implemented |
 | Testing | Go testing framework + Mock Printer | ✅ 23 tests passing |
 | Hardware | 58mm thermal printer (ESC/POS), USB | ✅ Supported |
 

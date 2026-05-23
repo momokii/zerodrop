@@ -61,3 +61,6 @@ frontend/.env
 frontend/.env.local
 frontend/.env.production
 frontend/.vite/
+
+# other folders
+.omo

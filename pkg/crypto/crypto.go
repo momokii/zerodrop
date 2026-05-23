@@ -10,6 +10,8 @@ import (
 	"log"
 	"os"
 	"runtime"
+
+	"github.com/zerodrop/terminal/pkg/qr"
 )
 
 // KeyPair represents an ECC key pair for Curve25519
@@ -64,8 +66,14 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
 	}
 	privateKeyPEM := pem.EncodeToMemory(block)
 
-	// Log with prefix for scanning
-	log.Printf("PRIVATE_KEY_QR: %s", privateKeyPEM)
+	log.Printf("PRIVATE_KEY_QR (PEM DATA): %s", privateKeyPEM)
+
+	pngData, err := qr.GenerateQRPNG(privateKeyPEM)
+	if err != nil {
+		log.Printf("WARNING: Could not generate private key QR image: %v", err)
+	} else {
+		log.Printf("PRIVATE_KEY_QR (PNG SIZE): %d bytes - scan this QR to retrieve the private key", len(pngData))
+	}
 
 	return nil
 }

@@ -1,0 +1,18 @@
+# ZeroDrop Reader — Standalone Offline Decryptor
+# Run independently from the main ZeroDrop Terminal for recipients
+# who only need to decrypt QR codes.
+#
+# Usage:
+#   docker-compose -f docker-compose.reader.yml up -d
+#   open http://localhost:8081
+
+services:
+  zerodrop-reader:
+    build:
+      context: .
+      dockerfile: Dockerfile.reader
+    image: zerodrop-reader:latest
+    container_name: zerodrop-reader
+    restart: unless-stopped
+    ports:
+      - "8081:80"

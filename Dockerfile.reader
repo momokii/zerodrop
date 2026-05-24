@@ -1,0 +1,13 @@
+# ZeroDrop Reader — Standalone Offline Decryptor
+# Minimal nginx image serving static/reader.html + jsQR
+# Recipients run this to access the offline decryption tool
+# without needing the full ZeroDrop backend.
+
+FROM nginx:alpine
+
+# Copy static files (reader.html + jsqr.min.js)
+COPY static/ /usr/share/nginx/html/
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

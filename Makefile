@@ -6,13 +6,19 @@ help:
 	@echo "ZeroDrop Terminal v1.0 — Makefile Targets"
 	@echo ""
 	@echo "DOCKER (primary workflow):"
-	@echo "  make docker-build       - Build Docker images"
+	@echo "  make docker-build        - Build Docker images"
 	@echo "  make docker-up           - Start services (development mode)"
 	@echo "  make docker-up-prod      - Start services (production mode)"
 	@echo "  make docker-down         - Stop services"
 	@echo "  make docker-logs         - View service logs"
 	@echo "  make docker-restart      - Restart services"
 	@echo "  make docker-clean        - Remove all Docker resources"
+	@echo ""
+	@echo "READER (standalone offline decryptor):"
+	@echo "  make serve-reader        - Serve reader.html locally (port 8081)"
+	@echo "  make docker-reader-build - Build standalone reader Docker image"
+	@echo "  make docker-reader-up    - Start reader container (port 8081)"
+	@echo "  make docker-reader-down  - Stop reader container"
 	@echo ""
 	@echo "DEVELOPMENT (local):"
 	@echo "  make dev                 - Start dev server (Mock Printer)"
@@ -109,6 +115,33 @@ docker-clean:
 	@$(DOCKER_COMPOSE) down -v 2>/dev/null || true
 	docker system prune -f
 	@echo "✓ Docker resources cleaned"
+
+# =============================================================================
+# Reader Targets (standalone offline decryptor)
+# =============================================================================
+
+.PHONY: serve-reader docker-reader-build docker-reader-up docker-reader-down
+
+serve-reader:
+	@echo "→ Starting reader.html on http://localhost:8081..."
+	@echo "  Open http://localhost:8081/reader.html in your browser"
+	@echo "  Press Ctrl+C to stop"
+	@cd static && python3 -m http.server 8081
+
+docker-reader-build:
+	@echo "→ Building standalone reader Docker image..."
+	docker build -t zerodrop-reader:latest -f Dockerfile.reader .
+	@echo "✓ Reader image built: zerodrop-reader:latest"
+
+docker-reader-up:
+	@echo "→ Starting reader container on http://localhost:8081..."
+	docker-compose -f docker-compose.reader.yml up -d
+	@echo "✓ Reader running at http://localhost:8081/reader.html"
+
+docker-reader-down:
+	@echo "→ Stopping reader container..."
+	docker-compose -f docker-compose.reader.yml down
+	@echo "✓ Reader stopped"
 
 # =============================================================================
 # Development Targets (local binary)

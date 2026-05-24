@@ -1,4 +1,5 @@
 # ZeroDrop Terminal - Production Override
+# Docker-only deployment. No reverse proxy, no external infrastructure.
 # Use with: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 version: '3.8'
@@ -13,8 +14,6 @@ services:
     # Map USB printer device (NOT privileged mode)
     devices:
       - /dev/usb/lp0:/dev/usb/lp0
-      # Alternative device paths (uncomment if needed)
-      # - /dev/usblp0:/dev/usblp0
     # Resource limits
     deploy:
       resources:
@@ -24,7 +23,6 @@ services:
         reservations:
           cpus: '0.25'
           memory: 64M
-    # No volume mounts for source code in production
     volumes:
       - ./data:/app/data
     # USB device group permissions for printer access
@@ -34,31 +32,3 @@ services:
     # Security options
     security_opt:
       - no-new-privileges:true
-    # Read-only root filesystem (except /app/data)
-    # read_only: true
-    # tmpfs:
-    #   - /tmp
-
-  traefik:
-    image: traefik:v2.10
-    container_name: zerodrop-traefik
-    restart: always
-    command:
-      - "--api.dashboard=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-    ports:
-      - "80:80"
-      - "443:443"
-      - "8081:8080"  # Traefik dashboard
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./infrastructure/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-    networks:
-      - zerodrop-net
-
-networks:
-  zerodrop-net:
-    driver: bridge

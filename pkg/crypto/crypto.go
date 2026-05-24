@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"runtime"
 
 	"github.com/zerodrop/terminal/pkg/qr"

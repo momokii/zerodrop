@@ -217,16 +217,22 @@
         <div id="status" class="status"></div>
 
         <div class="section">
-            <div class="section-title">1. Scan QR Code</div>
+            <div class="section-title">1. Scan QR Code <span style="font-weight:400;color:#999;">(or paste below)</span></div>
             <div class="scanner-container">
                 <video id="video" autoplay playsinline></video>
                 <div class="scan-overlay"></div>
             </div>
-            <p class="info">Position the QR code within the frame. Camera access is required.</p>
+            <p class="info">Position the QR code within the frame, or paste the ZD1: payload manually below.</p>
         </div>
 
         <div class="section">
-            <div class="section-title">2. Paste Private Key</div>
+            <div class="section-title">2. Paste Encrypted Payload <span style="font-weight:400;color:#999;">(skip if scanned)</span></div>
+            <textarea id="payloadInput" placeholder="Paste ZD1: encrypted payload here...
+ZD1:base64data..."></textarea>
+        </div>
+
+        <div class="section">
+            <div class="section-title">3. Paste Private Key</div>
             <textarea id="privateKey" placeholder="Paste your private key in PEM format...
 -----BEGIN PRIVATE KEY-----
 ...
@@ -254,6 +260,7 @@
     <script type="module">
         const video = document.getElementById('video');
         const privateKeyInput = document.getElementById('privateKey');
+        const payloadInput = document.getElementById('payloadInput');
         const decryptBtn = document.getElementById('decryptBtn');
         const resultDiv = document.getElementById('result');
         const statusDiv = document.getElementById('status');
@@ -262,6 +269,7 @@
         let publicKey = null;
         let privateKey = null;
         let qrCodeData = '';
+        let payloadSource = 'camera'; // 'camera' or 'manual'
 
         async function initCamera() {
             try {
@@ -272,7 +280,7 @@
                 showStatus('Scanning...', 'scanning');
                 startQRScan();
             } catch (err) {
-                showStatus('Camera access denied: ' + err.message, 'error');
+                showStatus('Camera access denied: ' + err.message + ' — You can paste the ZD1: payload manually below.', 'error');
             }
         }
 
@@ -291,6 +299,8 @@
 
                     if (code && code.data && code.data.startsWith('ZD1:')) {
                         qrCodeData = code.data;
+                        payloadSource = 'camera';
+                        payloadInput.value = ''; // clear manual input
                         showStatus('QR scanned! Ready to decrypt.', 'scanning');
                         decryptBtn.disabled = !privateKey;
                     }
@@ -408,13 +418,25 @@
             resultDiv.querySelector('.result-content').textContent = content;
         }
 
+        // Manual payload paste
+        payloadInput.addEventListener('input', () => {
+            const val = payloadInput.value.trim();
+            if (val.startsWith('ZD1:')) {
+                qrCodeData = val;
+                payloadSource = 'manual';
+                showStatus('Payload pasted manually. Ready to decrypt.', 'scanning');
+                decryptBtn.disabled = !privateKey;
+            }
+        });
+
         privateKeyInput.addEventListener('input', async () => {
             const pem = privateKeyInput.value.trim();
             if (pem.includes('-----BEGIN PRIVATE KEY-----')) {
                 try {
                     await extractPublicKey(pem);
                     decryptBtn.disabled = !qrCodeData;
-                    showStatus('Private key loaded. Ready to decrypt.', 'scanning');
+                    const src = payloadSource === 'camera' ? 'QR scanned' : 'payload pasted';
+                    showStatus('Private key loaded. ' + src + '. Ready to decrypt.', 'scanning');
                 } catch (err) {
                     showStatus(err.message, 'error');
                     decryptBtn.disabled = true;
@@ -423,6 +445,10 @@
         });
 
         decryptBtn.addEventListener('click', async () => {
+            if (!qrCodeData) {
+                showStatus('No payload data. Scan a QR or paste a ZD1: payload.', 'error');
+                return;
+            }
             try {
                 showStatus('Decrypting...', 'scanning');
                 const plaintext = await decrypt(qrCodeData);

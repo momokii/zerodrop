@@ -30,7 +30,7 @@
 |----------|----------|-------------|
 | `PRINTER_TYPE` | Yes | `mock` or `usb` |
 | `PRINTER_DEVICE` | If USB | Device path (e.g., `/dev/usb/lp0`) |
-| `PUBLIC_KEY_PATH` | No | Path to save public key PEM (default: `public_key.pem`) |
+| `PUBLIC_KEY_PATH` | No | Path to save public key PEM (default: `./data/public_key.pem`) |
 | `RATE_LIMIT_REQUESTS_PER_HOUR` | No | Traefik rate limit (default: 5) |
 | `LOG_ENABLED` | No | Structured logging opt-in (default: false) |
 
@@ -82,7 +82,7 @@ func BurnProtocol(buf []byte) {
 - **Never trust client-supplied data** for authorization decisions
 - **Reject and return clear error** for invalid input — no silent coercion
 - **ZeroDrop-specific validations**:
-  - `POST /drop` payload: max 250 characters, valid base64, optional `ZD1:` prefix
+  - `POST /drop` payload: max 400 characters, valid base64, optional `ZD1:` prefix
   - `PRINTER_DEVICE`: must exist and be writable for USB type
 - **Use validation library** — consider `go-playground/validator` for complex validation
 

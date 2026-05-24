@@ -109,7 +109,7 @@ docker-compose.traefik.yml    # ✅ Traefik integration
 
 - **Status file:** `state/CURRENT_STATUS.md` — **M-05 Complete + ECIES Crypto Chain** — Production ready
 - **Task backlog:** `state/TASK_QUEUE.md` — 5 milestones (ALL DONE ✅) + session 10 ECIES/QR/health/limit updates
-- **Decision history:** `state/DECISIONS_LOG.md` — 30 decisions logged (24 original + 6 from session 10)
+- **Decision history:** `state/DECISIONS_LOG.md` — 31 decisions logged (24 original + 6 from session 10 + 1 from session 11)
 - **PRD:** `docs/prd/PRD-001-zerodrop-terminal-v1.0.md` — updated with 400-char limit, FR-024 split, FR-030/FR-034 corrections
 
 **Project Status:** ZeroDrop Terminal v1.0 is **PRODUCTION READY** with full ECIES encryption chain (X25519 ECDH + AES-256-GCM) across all layers, QR ESC/POS rasterization, and health check 503 support.

@@ -72,6 +72,7 @@ Implementation — **M-05 Complete** — ZeroDrop Terminal v1.0 Ready for Produc
 | 8 | 2026-05-12 | M-04 implementation: USB printer auto-detection, health check, Docker, Traefik |
 | 9 | 2026-05-12 | M-05 implementation: React + Vite + shadcn/ui frontend, Web Crypto API, production build, SPA serving |
 | 10 | 2026-05-23 | ECIES crypto chain: real X25519 ECDH + AES-256-GCM encryption in frontend and reader.html, QR ESC/POS rasterization (pkg/qr), health check 503, payload limit 250→400, Docker USB group_add; full PRD audit & fixes |
+| 11 | 2026-05-24 | SPKI public key format fix: SavePublicKeyToFile uses x509.MarshalPKIXPublicKey instead of publicKey.Bytes() so Web Crypto API importKey("spki",...) succeeds. GetPublicKeyFingerprint hashes SPKI DER to match frontend. LOG_ENABLED confirmed working. Docs audit and update. |
 
 ---
 
@@ -239,7 +240,28 @@ All tests passing:
 
 ---
 
+## Session 11 — SPKI Public Key Format Fix (2026-05-24)
+
+### What Changed
+
+The `SavePublicKeyToFile` function was writing raw 32-byte X25519 bytes into the PEM file. The frontend's `crypto.subtle.importKey("spki", ...)` requires full SPKI DER structure (algorithm OID + key). Fixed by using `x509.MarshalPKIXPublicKey(publicKey)` instead of `publicKey.Bytes()`.
+
+Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go server and frontend fingerprints match for operator verification.
+
+### Root Cause
+- `publicKey.Bytes()` returns raw 32-byte X25519 public key — not valid SPKI DER
+- This caused `importKey("spki", ...)` to fail with "encryption failed" on the frontend
+- Old PEM: `CkcyzxMs8aRKMlSagZJqO5mSjW2zgsqRMImcEShWHi8=` (raw bytes, ~70 bytes)
+- New PEM: `MCowBQYDK2VuAyEA...` (SPKI DER with X25519 OID 1.3.101.110, ~113 bytes)
+
+### Files Changed
+| File | Change |
+|------|--------|
+| `pkg/crypto/crypto.go` | Added `crypto/x509` import. `SavePublicKeyToFile`: `x509.MarshalPKIXPublicKey` instead of `publicKey.Bytes()`. `GetPublicKeyFingerprint`: same SPKI DER hash. |
+
 ## Last Updated
+
+2026-05-24 — **SPKI Format Fix & Docs Audit**: `SavePublicKeyToFile` now produces proper SPKI DER for Web Crypto API compatibility. All docs updated to reflect latest state. Structured JSON logging confirmed working with `LOG_ENABLED=true`.
 
 2026-05-23 — **ECIES Crypto Chain Complete**: Real X25519 ECDH + AES-256-GCM encryption across all layers. QR ESC/POS rasterization. Health check 503. Payload limit 250→400. Docker USB permissions. Full PRD audit complete. All 39 FRs resolved.
 

@@ -281,3 +281,13 @@
 **Alternatives Rejected:** Keep PRD requiring explicit device path (operational burden, contradicts implemented behavior).
 **Security Implications:** Neutral — device auto-detection doesn't change security posture.
 **Impact:** PRD FR-034 updated to reflect optional `PRINTER_DEVICE` with auto-detection and Mock Printer fallback.
+
+---
+
+**Decision:** SPKI Public Key Format — x509.MarshalPKIXPublicKey Instead of Raw Bytes
+**Date:** 2026-05-24
+**Context:** `SavePublicKeyToFile` used `publicKey.Bytes()` to write the public key PEM file. This produced raw 32-byte X25519 bytes, which the frontend's `crypto.subtle.importKey("spki", ...)` cannot parse — it requires full SPKI DER structure (algorithm OID + key). This caused "encryption failed" on the frontend when importing the server's public key.
+**Rationale:** `x509.MarshalPKIXPublicKey()` produces proper SPKI DER encoding (algorithm identifier + BIT STRING key data). The Go `crypto/x509` package handles the OID marshaling for Curve25519 (OID 1.3.101.110) correctly. The frontend already used `importKey("spki", ...)` which is the correct format — the backend was writing the wrong bytes. Also fixed `GetPublicKeyFingerprint` to hash the same SPKI DER bytes so operator and user fingerprints match.
+**Alternatives Rejected:** Writing raw PKIX format manually (error-prone), keeping raw bytes and changing frontend to use `importKey("raw", ...)` (not supported by all browsers for ECDH), using subjectPublicKey encoding without algorithm identifier (non-standard).
+**Security Implications:** Positive — proper SPKI format enables browser crypto interoperability. No security regression as the underlying key material (X25519) is unchanged.
+**Impact:** `pkg/crypto/crypto.go` `SavePublicKeyToFile()` and `GetPublicKeyFingerprint()` updated. Old PEM files deleted; server regenerates with correct format on restart.

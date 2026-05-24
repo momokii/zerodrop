@@ -4,6 +4,7 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
@@ -39,8 +40,13 @@ func GenerateKeyPair() (*KeyPair, error) {
 }
 
 // SavePublicKeyToFile saves the public key to a file in PEM format
+// Uses SPKI DER format via x509.MarshalPKIXPublicKey so browsers can
+// import it with crypto.subtle.importKey("spki", ...)
 func SavePublicKeyToFile(publicKey *ecdh.PublicKey, filepath string) error {
-	publicKeyBytes := publicKey.Bytes()
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return fmt.Errorf("failed to marshal public key to SPKI: %w", err)
+	}
 
 	block := &pem.Block{
 		Type:  "PUBLIC KEY",
@@ -49,7 +55,7 @@ func SavePublicKeyToFile(publicKey *ecdh.PublicKey, filepath string) error {
 
 	pemData := pem.EncodeToMemory(block)
 
-	err := os.WriteFile(filepath, pemData, 0644)
+	err = os.WriteFile(filepath, pemData, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to write public key file: %w", err)
 	}
@@ -111,10 +117,13 @@ func BurnProtocol(keyPair *KeyPair) {
 	keyPair.PrivateKey = nil
 }
 
-// GetPublicKeyFingerprint returns the SHA-256 hash of the public key
-// This allows operators to verify they have the correct key
+// GetPublicKeyFingerprint returns the SHA-256 hash of the SPKI DER-encoded public key
+// Uses the same SPKI bytes that the frontend sees, so operator and user fingerprints match
 func GetPublicKeyFingerprint(publicKey *ecdh.PublicKey) (string, error) {
-	publicKeyBytes := publicKey.Bytes()
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal public key for fingerprint: %w", err)
+	}
 
 	hash := sha256.Sum256(publicKeyBytes)
 	fingerprint := hex.EncodeToString(hash[:])

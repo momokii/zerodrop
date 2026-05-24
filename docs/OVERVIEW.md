@@ -1,7 +1,7 @@
 # ZeroDrop Terminal — Simple Overview
 
 **Version:** 1.0  
-**Last Updated:** 2026-05-11
+**Last Updated:** 2026-05-24
 
 ---
 

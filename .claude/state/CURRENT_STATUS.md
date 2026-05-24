@@ -39,7 +39,7 @@ Implementation — **M-05 Complete** — ZeroDrop Terminal v1.0 Ready for Produc
 
 ## Tech Stack
 
-- Go backend, React + Vite + shadcn/ui frontend, Docker Compose + Traefik
+- Go backend, React + Vite + shadcn/ui frontend, Docker Compose
 - Crypto: Curve25519 (X25519) via `crypto/ecdh`, Web Crypto API for browser
 - Architecture: Zero-knowledge, ephemeral processing, no database persistence
 
@@ -69,10 +69,11 @@ Implementation — **M-05 Complete** — ZeroDrop Terminal v1.0 Ready for Produc
 | 5 | 2026-05-11 | M-02 implementation: pkg/api, pkg/spooler, pkg/observability |
 | 6 | 2026-05-11 | M-03 implementation: pkg/printer, static/reader.html |
 | 7 | 2026-05-11 | Standards update: All `.claude/` files updated with Go standards |
-| 8 | 2026-05-12 | M-04 implementation: USB printer auto-detection, health check, Docker, Traefik |
+| 8 | 2026-05-12 | M-04 implementation: USB printer auto-detection, health check, Docker |
 | 9 | 2026-05-12 | M-05 implementation: React + Vite + shadcn/ui frontend, Web Crypto API, production build, SPA serving |
 | 10 | 2026-05-23 | ECIES crypto chain: real X25519 ECDH + AES-256-GCM encryption in frontend and reader.html, QR ESC/POS rasterization (pkg/qr), health check 503, payload limit 250→400, Docker USB group_add; full PRD audit & fixes |
 | 11 | 2026-05-24 | SPKI public key format fix: SavePublicKeyToFile uses x509.MarshalPKIXPublicKey instead of publicKey.Bytes() so Web Crypto API importKey("spki",...) succeeds. GetPublicKeyFingerprint hashes SPKI DER to match frontend. LOG_ENABLED confirmed working. Docs audit and update. |
+| 12 | 2026-05-24 | **Traefik removal**: Deleted infrastructure/traefik/ and docker-compose.traefik.yml. Rewrote Makefile.deploy as Docker-only (removed binary/systemd/udev/firewall/rollback targets). Cleaned Traefik refs from README.md, docs/OVERVIEW.md, TESTING.md, CLAUDE.md, .claude/*.md, .env.example. docker-compose.prod.yml already clean (no Traefik). Go config rate limit fields preserved (vestigial, not wired to middleware). All docs updated to Docker-only architecture. |
 
 ---
 
@@ -223,7 +224,7 @@ PRINTER_TYPE=mock ./bin/zerodrop
 ### Production (Docker)
 
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.traefik.yml up -d
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
 ---
@@ -260,6 +261,8 @@ Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go ser
 | `pkg/crypto/crypto.go` | Added `crypto/x509` import. `SavePublicKeyToFile`: `x509.MarshalPKIXPublicKey` instead of `publicKey.Bytes()`. `GetPublicKeyFingerprint`: same SPKI DER hash. |
 
 ## Last Updated
+
+2026-05-24 — **Traefik Removal & Docker-Only Deployment**: Deleted infrastructure/traefik/, docker-compose.traefik.yml. Makefile.deploy rewritten as Docker-only. All docs cleaned of Traefik references. Build and tests passing.
 
 2026-05-24 — **SPKI Format Fix & Docs Audit**: `SavePublicKeyToFile` now produces proper SPKI DER for Web Crypto API compatibility. All docs updated to reflect latest state. Structured JSON logging confirmed working with `LOG_ENABLED=true`.
 

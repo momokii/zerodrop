@@ -98,7 +98,7 @@
 | Complexity          | L                                                                                                                  |
 | Depends On          | M-04                                                                                                               |
 | Scope               | Implement submission portal (React + Vite + shadcn/ui), Web Crypto API encryption (real X25519 ECDH + AES-256-GCM added post M-05), SPA serving, documentation. |
-| Acceptance Criteria | AC-002, AC-012, AC-013, AC-014, AC-019 (frontend and encryption); AC-024 (Traefik rate limiting)            |
+| Acceptance Criteria | AC-002, AC-012, AC-013, AC-014, AC-019 (frontend and encryption)            |
 | Security Concerns   | Submission portal must encrypt in browser using Web Crypto API. No external CDN dependencies. SPA served by backend. |
 
 ---
@@ -132,29 +132,16 @@ ZeroDrop Terminal v1.0 is **ready for production deployment**:
 2. **Frontend**: React SPA embedded in backend, no CDN required
 3. **Security**: Zero-knowledge architecture, Web Crypto API, Burn Protocol
 4. **Hardware**: USB printer auto-detection with Mock Printer fallback
-5. **Infrastructure**: Docker Compose + Traefik with rate limiting
+5. **Infrastructure**: Docker Compose with secure defaults
 6. **Documentation**: Complete README, PRD, and `.claude/` standards
 
 ---
 
 ### Deployment Options
 
-1. **Single Binary** (simplest):
-   ```bash
-   make -f Makefile.deploy deploy-binary
-   make -f Makefile.deploy run-binary
-   ```
-
-2. **Docker Compose** (recommended for production):
+1. **Docker Compose** (recommended for production):
    ```bash
    make -f Makefile.deploy deploy
-   ```
-
-3. **Systemd Service** (for Linux servers):
-   ```bash
-   make -f Makefile.deploy setup-user
-   make -f Makefile.deploy setup-udev
-   make -f Makefile.deploy setup-systemd
    ```
 
 ### Deployment Makefile
@@ -163,17 +150,14 @@ Created `Makefile.deploy` with comprehensive production operations:
 
 **Quick Deploy:**
 - `make -f Makefile.deploy deploy` — Full production deployment (Docker)
-- `make -f Makefile.deploy deploy-binary` — Deploy as single binary
 - `make -f Makefile.deploy deploy-update` — Update with backup
 - `make -f Makefile.deploy deploy-rollback` — Rollback to previous version
 
 **Build:**
-- `make -f Makefile.deploy build-all` — Build all (binary + Docker)
-- `make -f Makefile.deploy build-binary` — Build production binary
 - `make -f Makefile.deploy build-docker` — Build Docker images
 
 **Operations:**
-- `make -f Makefile.deploy run-binary` / `run-docker` — Start services
+- `make -f Makefile.deploy run-docker` — Start Docker services
 - `make -f Makefile.deploy stop-docker` / `restart-docker` — Manage Docker
 - `make -f Makefile.deploy health` / `health-detailed` — Health checks
 - `make -f Makefile.deploy status` — Show service status
@@ -182,20 +166,11 @@ Created `Makefile.deploy` with comprehensive production operations:
 **Backup & Restore:**
 - `make -f Makefile.deploy backup-key` / `restore-key` — Key management
 - `make -f Makefile.deploy backup-config` / `restore-config` — Configuration backup
-- `make -f Makefile.deploy rollback-archive` — Create rollback archive
-- `make -f Makefile.deploy rollback-list` — List rollback archives
-- `make -f Makefile.deploy rollback-clean` — Clean old archives
 
 **Security:**
 - `make -f Makefile.deploy check-secure` — Run security checks (vet, vulnscan, race detection)
 - `make -f Makefile.deploy update-deps` — Update and audit dependencies
 - `make -f Makefile.deploy scan-vulns` — Scan for vulnerabilities
-
-**System Setup:**
-- `make -f Makefile.deploy setup-systemd` — Generate systemd service file
-- `make -f Makefile.deploy setup-udev` — Generate USB printer udev rules
-- `make -f Makefile.deploy setup-user` — Create dedicated service user
-- `make -f Makefile.deploy setup-firewall` — Firewall configuration
 
 ---
 

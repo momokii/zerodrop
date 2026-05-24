@@ -17,12 +17,17 @@ cd frontend && npm run build && cd ..
 PRINTER_TYPE=mock LOG_ENABLED=false ./bin/zerodrop
 ```
 
+> **Note:** The server auto-detects the project root by looking for `go.mod`. You can run it from any directory — it will always find the correct paths for the frontend, static files, and keys.
+
 The server starts on `http://localhost:8080`.
 
 On startup, look in the terminal for:
+- **`Working directory:`** — Confirms the server found the project root and chdir'd there
 - **`PUBLIC_KEY_FINGERPRINT`** — SHA-256 hex string to verify the key
 - **`PRIVATE_KEY_QR (PEM DATA)`** — The PEM private key (save for decryption testing)
-- **`PRIVATE_KEY_QR (PNG SIZE)`** — Confirms QR PNG was generated for the private key
+- **`PRIVATE_KEY_QR saved to ...private_key_qr.png`** — Full absolute path to the scannable QR PNG
+
+The file `private_key_qr.png` is always created in the project root (alongside `go.mod`), regardless of where you run the binary from. It contains the private key as a scannable QR code (raw PEM, no wrapper). You can open it and scan with the reader's camera, or just copy the PEM text from the terminal log.
 
 ---
 
@@ -139,9 +144,9 @@ http://localhost:8080/reader.html
    - *Option A:* Click "Start Camera" and scan a QR code (uses WebRTC `getUserMedia` + jsQR)
    - *Option B:* Manually paste the encrypted payload (the `ZD1:...` string)
 
-3. **Paste the private key:**
-   - Copy the PEM from the server startup log (`PRIVATE_KEY_QR (PEM DATA):`)
-   - Paste into the key input field
+3. **Import the private key:**
+   - *Option A:* Open `private_key_qr.png` on your screen or print it, then scan via camera using the reader's "Start Camera" button
+   - *Option B:* Copy the PEM from the server startup log (`PRIVATE_KEY_QR (PEM DATA):`) and paste into the key input field
 
 4. **Verify fingerprint:**
    - The reader calculates the **SHA-256 fingerprint** of your imported key's public key
@@ -305,7 +310,8 @@ read
 ## Testing Checklist
 
 ### Backend
-- [ ] Server starts — logs fingerprint, private key QR + PEM
+- [ ] Server starts — logs fingerprint, private key PEM + saves `private_key_qr.png`
+- [ ] `private_key_qr.png` created in project root (openable image, scannable QR)
 - [ ] `GET /health` (200) — returns JSON with printer status
 - [ ] `GET /health` (503) — when printer unavailable (USB mode, no device)
 - [ ] `GET /key` (200) — returns PEM public key
@@ -313,6 +319,7 @@ read
 - [ ] `POST /drop` (400) — missing `ZD1:` prefix
 - [ ] `POST /drop` (400) — payload > 400 characters
 - [ ] `POST /drop` (400) — invalid JSON body
+- [ ] No duplicate log lines on startup
 - [ ] Graceful shutdown — spooler drains, buffers zeroed
 - [ ] Payload memory zeroed after print job
 

@@ -50,6 +50,7 @@ temp/
 *_key.pem
 public_key.pem
 private_key.pem
+private_key_qr.png
 
 # Node modules (for frontend in M-05)
 node_modules/

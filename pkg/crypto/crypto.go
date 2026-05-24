@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/zerodrop/terminal/pkg/qr"
@@ -68,11 +69,19 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
 
 	log.Printf("PRIVATE_KEY_QR (PEM DATA): %s", privateKeyPEM)
 
-	pngData, err := qr.GenerateQRPNG(privateKeyPEM)
+	// Generate QR PNG with raw PEM content (no ZD1: wrapper — reader.html expects raw PEM)
+	pngData, err := qr.GenerateRawQRPNG(privateKeyPEM)
 	if err != nil {
 		log.Printf("WARNING: Could not generate private key QR image: %v", err)
 	} else {
-		log.Printf("PRIVATE_KEY_QR (PNG SIZE): %d bytes - scan this QR to retrieve the private key", len(pngData))
+		// Save QR PNG to file so the operator can open and scan it
+		const qrFilename = "private_key_qr.png"
+		if err := os.WriteFile(qrFilename, pngData, 0644); err != nil {
+			log.Printf("WARNING: Could not save private key QR to %s: %v", qrFilename, err)
+		} else {
+			absPath, _ := filepath.Abs(qrFilename)
+			log.Printf("PRIVATE_KEY_QR saved to %s (%d bytes) — open this image and scan with reader.html", absPath, len(pngData))
+		}
 	}
 
 	return nil

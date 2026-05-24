@@ -104,13 +104,25 @@ func GenerateQRESCPOS(data []byte) ([]byte, error) {
 }
 
 // GenerateQRPNG generates a QR code PNG image from the given data.
-// The QR content is formatted as "ZD1:" + base64(data) for consistency.
+// The QR content is formatted as "ZD1:" + base64(data) — suitable for payload ciphertexts.
 func GenerateQRPNG(data []byte) ([]byte, error) {
 	qrContent := "ZD1:" + base64.StdEncoding.EncodeToString(data)
 
 	png, err := qrcode.Encode(qrContent, qrcode.Medium, 256)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate QR PNG: %w", err)
+	}
+
+	return png, nil
+}
+
+// GenerateRawQRPNG generates a QR code PNG image from raw data.
+// Unlike GenerateQRPNG, the data is encoded as-is without any prefix or base64 wrapping.
+// This is suitable for PEM private keys and other self-describing content.
+func GenerateRawQRPNG(data []byte) ([]byte, error) {
+	png, err := qrcode.Encode(string(data), qrcode.Medium, 256)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate raw QR PNG: %w", err)
 	}
 
 	return png, nil

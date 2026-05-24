@@ -2,8 +2,6 @@
 # This file is automatically loaded by docker-compose up
 # Use for local development with hot reload and debug features
 
-version: '3.8'
-
 services:
   zerodrop:
     build:

@@ -2,8 +2,6 @@
 # Docker-only deployment. No reverse proxy, no external infrastructure.
 # Use with: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
-version: '3.8'
-
 services:
   zerodrop:
     restart: always

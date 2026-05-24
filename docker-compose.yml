@@ -2,8 +2,6 @@
 # This file contains environment-agnostic service definitions.
 # Override files (override.yml, prod.yml) add environment-specific settings.
 
-version: '3.8'
-
 services:
   zerodrop:
     build:

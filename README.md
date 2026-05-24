@@ -416,9 +416,15 @@ All configuration is via environment variables.
 | `PRINTER_TYPE` | **Yes** | — | `mock`, `usb`, `tcp` | Printer implementation |
 | `PRINTER_DEVICE` | No* | `""` (auto-detect) | Device path or empty | USB printer device path (empty = auto-detect from `/dev/usb/lp*`, `/dev/lp*`, `/dev/ttyUSB*`) |
 | `PUBLIC_KEY_PATH` | No | `./data/public_key.pem` | File path | Where to save/load the public key |
+| `RATE_LIMIT_REQUESTS_PER_HOUR` | No | `5` | Integer ≥ 1 | Max requests per IP per hour (built-in rate limiting) |
+| `RATE_LIMIT_BURST` | No | `1` | Integer ≥ 1 | Burst capacity for rate limiter |
 | `LOG_ENABLED` | No | `false` | `true`, `false` | Enable structured JSON logging |
 
 *\*Required for USB printer when auto-detection fails.*
+
+**Rate Limiting** — The app enforces per-IP rate limiting using a sliding 1-hour window (default: 5 requests/IP/hour, configurable via `RATE_LIMIT_REQUESTS_PER_HOUR` and `RATE_LIMIT_BURST`). Returns HTTP 429 when exceeded.
+
+> **Production note:** This built-in rate limiter is a basic safeguard. For production deployments, run ZeroDrop behind a reverse proxy (nginx, caddy, Traefik, etc.) for TLS termination, advanced rate limiting, and OS-level security hardening.
 
 **Structured Logging** (when `LOG_ENABLED=true`) outputs JSON log entries:
 ```json
@@ -453,7 +459,7 @@ The server **never** possesses either the plaintext payload or the private key n
 | No persistent storage | No database. RAM-only processing. |
 | Forward compatibility | All payloads prefixed with `ZD1:` version header |
 | Key fingerprinting | SHA-256 hash of public key printed on startup for operator verification |
-| Rate limiting | Applied at the application level |
+| Rate limiting | Built-in per-IP rate limiting (5 req/hr default). Deploy behind a reverse proxy for production-grade rate limiting, TLS, and security hardening. |
 | Non-root container | Docker runs as `zerodrop` user (UID 1000) |
 | Read-only filesystem | Container root filesystem can be set read-only in production |
 | No-new-privileges | Docker security option prevents privilege escalation |
@@ -468,7 +474,7 @@ The server **never** possesses either the plaintext payload or the private key n
 | Network interception | Payload is encrypted before transmission |
 | Physical printer access | Only ciphertext is printed; no plaintext exposed |
 | Database breach | No database exists |
-| DoS attack | Rate limiting at application level |
+| DoS attack | Built-in per-IP rate limiting mitigates basic abuse. Deploy behind a reverse proxy for production-grade DDoS protection. |
 | Memory dump | Ephemeral buffers zeroed with compiler-proof technique |
 
 ---

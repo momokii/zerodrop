@@ -161,7 +161,7 @@ It works by:
 1. **Zero-Knowledge:** Server never possesses plaintext or private key
 2. **Memory Hygiene:** All sensitive data is zeroed from RAM after use
 3. **No Database:** Data is never stored — exists only during printing
-4. **Rate Limited:** 5 requests per IP per hour (prevents abuse)
+4. **Rate Limited:** Built-in per-IP rate limiting (5 req/hr default). Deploy behind a reverse proxy for production-grade protection.
 5. **Forward Compatible:** QR format versioned (`ZD1:`) for future upgrades
 
 ---

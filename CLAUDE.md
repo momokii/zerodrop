@@ -136,7 +136,7 @@ If any answer is "no", fix it before ending the session.
 - **QR version header**: All payloads prefixed with `ZD1:` for forward compatibility
 - **Key fingerprinting**: SHA-256 hash of public key logged on startup for operator verification
 - **Memory hygiene**: All payload buffers zeroed after print job completion
-- **Rate limiting**: Applied at application level to mitigate DDoS
+- **Rate limiting**: Built-in per-IP sliding window (5 req/hr default). Deploy behind a reverse proxy for production TLS and advanced rate limiting.
 - **Web Crypto API**: Browser-native encryption, no external libraries
 
 ### Development Commands

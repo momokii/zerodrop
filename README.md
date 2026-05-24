@@ -46,7 +46,7 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 - **Offline Decryption** — Recipients use `static/reader.html` with jsQR camera scanning and real X25519 ECDH + AES-256-GCM decryption — no external dependencies, no network calls.
 - **Asynchronous Print Spooler** — Buffered Go channel worker pool with retry logic (3 attempts, exponential backoff) and graceful shutdown draining.
 - **Hardware Abstraction** — Supports Mock Printer (stdout logging) and USB Printer (auto-detection of 10+ models with graceful fallback).
-- **Production-Grade Infrastructure** — Docker Compose deployment with Traefik reverse proxy, rate limiting (5 req/hr/IP), TLS termination, and health checks.
+- **Production-Grade Infrastructure** — Docker Compose deployment with resource limits, health checks, and secure defaults.
 - **Dark Mode UI** — Modern React frontend with shadcn/ui components and Tailwind CSS, supporting both light and dark themes.
 
 ---
@@ -144,7 +144,6 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 | **UI Library** | shadcn/ui + Tailwind CSS 3 | Component system with dark mode |
 | **Styling** | PostCSS + Autoprefixer | CSS processing |
 | **Containers** | Docker + Docker Compose | Deployment and infrastructure |
-| **Reverse Proxy** | Traefik v2.10 | TLS termination, rate limiting, health checks |
 | **Printer Protocol** | ESC/POS | Thermal printer communication |
 | **QR Decoding (Offline)** | jsQR v1.4.0 | Local QR scanning in reader.html (no network) |
 | **Testing** | Go testing framework | Unit and integration tests |
@@ -207,9 +206,6 @@ zerodrop/
 ├── static/
 │   ├── reader.html              # Offline QR code decryption utility (works offline, no CDN)
 │   └── jsqr.min.js              # jsQR v1.4.0 — local QR decoding for offline reader
-├── infrastructure/
-│   └── traefik/
-│       └── traefik.yml          # Traefik static configuration (HTTPS, rate limiting)
 ├── docs/
 │   ├── OVERVIEW.md              # Stakeholder-friendly project overview
 │   └── prd/
@@ -231,7 +227,6 @@ zerodrop/
 ├── Dockerfile                   # Multi-stage Alpine Docker build
 ├── docker-compose.yml           # Base Docker Compose configuration
 ├── docker-compose.prod.yml      # Production Docker Compose overrides
-├── docker-compose.traefik.yml   # Traefik Docker Compose integration
 ├── docker-compose.override.yml  # Development Docker Compose overrides
 ├── Makefile                     # Development automation (build, test, deploy, ops)
 ├── Makefile.deploy              # Production deployment Makefile
@@ -312,8 +307,8 @@ The frontend dev server runs on `http://localhost:3000` and proxies `/key`, `/dr
 # Build and start all services (development mode)
 docker-compose up -d
 
-# Build and start all services (production mode with Traefik)
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.traefik.yml up -d
+# Build and start all services (production mode)
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 # View logs
 docker-compose logs -f zerodrop
@@ -323,7 +318,7 @@ docker-compose down
 
 # Using Makefile
 make docker-up          # Development mode
-make docker-up-prod     # Production mode with Traefik
+make docker-up-prod     # Production mode (Docker-only)
 make docker-logs        # View logs
 make docker-down        # Stop services
 make docker-restart     # Restart services
@@ -421,16 +416,9 @@ All configuration is via environment variables.
 | `PRINTER_TYPE` | **Yes** | — | `mock`, `usb`, `tcp` | Printer implementation |
 | `PRINTER_DEVICE` | No* | `""` (auto-detect) | Device path or empty | USB printer device path (empty = auto-detect from `/dev/usb/lp*`, `/dev/lp*`, `/dev/ttyUSB*`) |
 | `PUBLIC_KEY_PATH` | No | `./data/public_key.pem` | File path | Where to save/load the public key |
-| `RATE_LIMIT_REQUESTS_PER_HOUR` | No | `5` | Integer ≥ 1 | Max requests per IP per hour (Traefik) |
-| `RATE_LIMIT_BURST` | No | `1` | Integer ≥ 1 | Burst capacity for rate limiter |
 | `LOG_ENABLED` | No | `false` | `true`, `false` | Enable structured JSON logging |
 
 *\*Required for USB printer when auto-detection fails.*
-
-**Rate Limiting** is enforced by Traefik at the reverse proxy level:
-- 5 requests per IP per hour
-- Burst capacity of 1
-- Returns `429 Too Many Requests` when exceeded
 
 **Structured Logging** (when `LOG_ENABLED=true`) outputs JSON log entries:
 ```json
@@ -465,7 +453,7 @@ The server **never** possesses either the plaintext payload or the private key n
 | No persistent storage | No database. RAM-only processing. |
 | Forward compatibility | All payloads prefixed with `ZD1:` version header |
 | Key fingerprinting | SHA-256 hash of public key printed on startup for operator verification |
-| Rate limiting | 5 requests per IP per hour via Traefik (mitigates DDoS) |
+| Rate limiting | Applied at the application level |
 | Non-root container | Docker runs as `zerodrop` user (UID 1000) |
 | Read-only filesystem | Container root filesystem can be set read-only in production |
 | No-new-privileges | Docker security option prevents privilege escalation |
@@ -480,7 +468,7 @@ The server **never** possesses either the plaintext payload or the private key n
 | Network interception | Payload is encrypted before transmission |
 | Physical printer access | Only ciphertext is printed; no plaintext exposed |
 | Database breach | No database exists |
-| DoS attack | Rate limiting at reverse proxy level |
+| DoS attack | Rate limiting at application level |
 | Memory dump | Ephemeral buffers zeroed with compiler-proof technique |
 
 ---
@@ -575,20 +563,18 @@ make deploy          # Full production deployment (checks + build + deploy)
 
 # Or using the deploy Makefile
 make -f Makefile.deploy deploy           # Full production deployment
-make -f Makefile.deploy deploy-binary    # Deploy as single binary
 make -f Makefile.deploy deploy-update    # Update with backup
 
 # Manual Docker deployment
 docker-compose -f docker-compose.yml \
                -f docker-compose.prod.yml \
-               -f docker-compose.traefik.yml \
                up -d
 ```
 
 ### Binary Deployment
 
 ```bash
-# Build everything
+# Build frontend, then backend binary
 make build-all
 
 # Run as standalone binary
@@ -600,21 +586,9 @@ PRINTER_TYPE=usb LOG_ENABLED=false ./bin/zerodrop
 
 ### System Setup
 
-The project includes automation for production system setup via `Makefile.deploy`:
+The project includes automation for production system operations via `Makefile.deploy`:
 
 ```bash
-# Install systemd service
-make -f Makefile.deploy setup-systemd
-
-# Configure USB printer permissions
-make -f Makefile.deploy setup-udev
-
-# Create dedicated service user
-make -f Makefile.deploy setup-user
-
-# Configure firewall rules
-make -f Makefile.deploy setup-firewall
-
 # Backup and restore
 make -f Makefile.deploy backup-key
 make -f Makefile.deploy backup-config
@@ -770,7 +744,7 @@ This is a security-focused application. All contributions must:
 2. Create a feature branch (`git checkout -b feature/my-feature`)
 3. Make your changes
 4. Run tests: `make check test-race`
-5. Run security checks: `make -f Makefile.deploy check-secure`
+5. Run security checks: `make check-secure`
 6. Submit a pull request
 
 ---

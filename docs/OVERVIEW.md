@@ -55,7 +55,6 @@ It works by:
 
 ### 6. Production Ready
 - Docker Compose setup — one command to start
-- Traefik reverse proxy with rate limiting (prevents abuse)
 - Structured logging (optional, privacy-conscious)
 - Health check endpoint for monitoring
 
@@ -151,7 +150,7 @@ It works by:
 
 ### Infrastructure (How It's Deployed)
 - **Containers:** Docker Compose (one command to start everything)
-- **Reverse Proxy:** Traefik (handles HTTPS, rate limiting)
+
 - **Hardware:** USB thermal printer, Linux server
 - **Isolation:** Container runs without privileged access
 

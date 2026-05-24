@@ -91,7 +91,7 @@ If any answer is "no", fix it before ending the session.
 | **Backend** | Go 1.26+ | ✅ Implemented |
 | **Crypto** | Curve25519 (X25519) via `crypto/ecdh`, `crypto/rand` only | ✅ Implemented |
 | **Frontend** | React + Vite + shadcn/ui + Tailwind CSS | ✅ Implemented |
-| **Infrastructure** | Docker Compose + Traefik (reverse proxy, rate limiting) | ✅ Implemented |
+| **Infrastructure** | Docker Compose | ✅ Implemented |
 | **Hardware** | 58mm thermal printer (ESC/POS), USB connectivity | ✅ Supported |
 | **Testing** | Go testing framework + Mock Printer for CI | ✅ 23 tests passing |
 
@@ -136,7 +136,7 @@ If any answer is "no", fix it before ending the session.
 - **QR version header**: All payloads prefixed with `ZD1:` for forward compatibility
 - **Key fingerprinting**: SHA-256 hash of public key logged on startup for operator verification
 - **Memory hygiene**: All payload buffers zeroed after print job completion
-- **Rate limiting**: 5 requests per IP per hour (Traefik) to mitigate DDoS
+- **Rate limiting**: Applied at application level to mitigate DDoS
 - **Web Crypto API**: Browser-native encryption, no external libraries
 
 ### Development Commands
@@ -176,5 +176,5 @@ go vet ./...
 | 5 | 2026-05-11 | M-02 implementation: pkg/api (endpoints), pkg/spooler (worker pool), pkg/observability (logging, graceful shutdown) |
 | 6 | 2026-05-11 | M-03 implementation: pkg/printer (Printer interface, Mock Printer), static/reader.html (offline decryption) |
 | 7 | 2026-05-11 | Standards update: All `.claude/` files updated with Go-specific conventions, security standards, and environment commands. `.gitignore` created. |
-| 8 | 2026-05-12 | M-04 implementation: USB printer with auto-detection, enhanced health check, Docker configuration, Traefik integration |
+| 8 | 2026-05-12 | M-04 implementation: USB printer with auto-detection, enhanced health check, Docker configuration |
 | 9 | 2026-05-12 | M-05 implementation: React + Vite + shadcn/ui frontend, Web Crypto API integration, SPA serving, production build. **All 5 milestones complete — ZeroDrop Terminal v1.0 production ready.** |

@@ -4,7 +4,7 @@
 
 **ZeroDrop Terminal** is an air-gapped, zero-knowledge secure credential delivery terminal. Users encrypt sensitive data (passwords, API keys, security reports) in their browser using Web Crypto API, transmit it to a server that cannot decrypt it, and receive the ciphertext as a physical QR code printout via 58mm thermal printer. Recipients decrypt the printout offline using a standalone `reader.html` file.
 
-**Tech stack:** Go backend, React + Vite + shadcn/ui frontend, Docker Compose + Traefik, Curve25519 cryptography.
+**Tech stack:** Go backend, React + Vite + shadcn/ui frontend, Docker Compose, Curve25519 cryptography.
 
 **Current phase:** **M-05 Complete** — ZeroDrop Terminal v1.0 ready for production deployment.
 
@@ -90,8 +90,6 @@ frontend/                     # ✅ React + Vite + shadcn/ui (M-05 complete)
 └── dist/                    # ✅ Production build (served by Go backend)
 
 infrastructure/               # Docker and deployment (M-04)
-├── traefik/
-│   └── traefik.yml          # ✅ Traefik reverse proxy configuration
 └── (future: monitoring, logging)
 
 # Docker files (M-04)
@@ -99,7 +97,7 @@ Dockerfile                   # ✅ Multi-stage build
 docker-compose.yml           # ✅ Base configuration
 docker-compose.override.yml   # ✅ Development overrides
 docker-compose.prod.yml       # ✅ Production overrides
-docker-compose.traefik.yml    # ✅ Traefik integration
+
 .env.example                 # ✅ Environment variable template
 ```
 
@@ -138,7 +136,7 @@ This is not optional. Keeping `.claude/` accurate is part of every task.
 - **Burn Protocol**: Must use `runtime.KeepAlive()` after zeroing private key
 - **Memory hygiene**: All payload buffers zeroed after print job completion
 - **No database**: Ephemeral RAM-only processing
-- **Rate limiting**: 5 req/IP/hour (Traefik) to mitigate DDoS
+- **Rate limiting**: Applied at application level
 
 ### Architecture Decisions
 
@@ -165,7 +163,7 @@ This is not optional. Keeping `.claude/` accurate is part of every task.
 | Health Check | Enhanced with printer status + 503 when unavailable | ✅ Implemented |
 | SPA Serving | Go http.FileServer with fallback | ✅ Implemented |
 | Docker | Multi-stage build, Alpine-based | ✅ Implemented |
-| Traefik | Reverse proxy + rate limiting | ✅ Configured |
+
 | Frontend | React + Vite + shadcn/ui + TypeScript | ✅ Implemented |
 | Web Crypto | X25519 ECDH + AES-256-GCM encryption/decryption in browser | ✅ Implemented |
 | Offline Decoding | jsQR v1.4.0 (local file, no network) | ✅ Implemented |
@@ -208,7 +206,7 @@ PRINTER_TYPE=mock ./bin/zerodrop
 # Access at http://localhost:8080
 
 # Docker Compose (production)
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.traefik.yml up -d
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 # Using Deployment Makefile (production operations)
 make -f Makefile.deploy deploy              # Full deployment
@@ -231,19 +229,16 @@ ZeroDrop Terminal v1.0 is ready for production deployment:
 ```bash
 # Quick deployment (Docker)
 make -f Makefile.deploy deploy
-
-# Single binary deployment
-make -f Makefile.deploy deploy-binary
-make -f Makefile.deploy run-binary
-
-# Full system setup (systemd + udev + user)
-make -f Makefile.deploy setup-user
-make -f Makefile.deploy setup-udev
-make -f Makefile.deploy setup-systemd
 ```
 
 **Manual deployment:**
-1. **Single Binary**:
+
+1. **Docker Compose**:
+   ```bash
+   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+   ```
+
+2. **Single Binary**:
    ```bash
    # Build frontend (already done)
    cd frontend && npm run build && cd ..
@@ -253,11 +248,6 @@ make -f Makefile.deploy setup-systemd
 
    # Run
    PRINTER_TYPE=usb PRINTER_DEVICE="" ./bin/zerodrop
-   ```
-
-2. **Docker Compose**:
-   ```bash
-   docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.traefik.yml up -d
    ```
 
 3. **Access**:

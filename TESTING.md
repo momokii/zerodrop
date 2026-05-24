@@ -350,8 +350,8 @@ cd frontend && npm run build && cd ..
 # Development mode
 docker-compose up
 
-# Production mode (with Traefik)
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.traefik.yml up -d
+# Production mode (Docker-only)
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 # View logs
 docker-compose logs -f zerodrop

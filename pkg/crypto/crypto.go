@@ -73,21 +73,12 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
 	}
 	privateKeyPEM := pem.EncodeToMemory(block)
 
-	log.Printf("PRIVATE_KEY_QR (PEM DATA): %s", privateKeyPEM)
-
-	// Generate QR PNG with raw PEM content (no ZD1: wrapper — reader.html expects raw PEM)
-	pngData, err := qr.GenerateRawQRPNG(privateKeyPEM)
-	if err != nil {
-		log.Printf("WARNING: Could not generate private key QR image: %v", err)
+	// Print ASCII QR art to terminal for immediate scanning
+	asciiArt, asciiErr := qr.GenerateQRASCII(string(privateKeyPEM))
+	if asciiErr != nil {
+		log.Printf("WARNING: Could not generate ASCII QR: %v", asciiErr)
 	} else {
-		// Save QR PNG to file so the operator can open and scan it
-		const qrFilename = "private_key_qr.png"
-		if err := os.WriteFile(qrFilename, pngData, 0644); err != nil {
-			log.Printf("WARNING: Could not save private key QR to %s: %v", qrFilename, err)
-		} else {
-			absPath, _ := filepath.Abs(qrFilename)
-			log.Printf("PRIVATE_KEY_QR saved to %s (%d bytes) — open this image and scan with reader.html", absPath, len(pngData))
-		}
+		fmt.Fprintf(os.Stdout, "\n%s\n", asciiArt)
 	}
 
 	return nil
@@ -136,14 +127,11 @@ func GetPublicKeyFingerprint(publicKey *ecdh.PublicKey) (string, error) {
 func InitializeOrLoadKeyPair(publicKeyPath string) (*KeyPair, error) {
 	// Check if public key already exists
 	if _, err := os.Stat(publicKeyPath); err == nil {
-		log.Printf("Existing public key found at %s", publicKeyPath)
-		// For now, we'll still generate a new key pair if the server restarts
-		// In production, you might want to load the existing key
-		// This is a security decision - for v1.0, we regenerate on restart
-		// and require the operator to have saved the private key from first boot
+		log.Printf("Existing public key found at %s (will be overwritten)", publicKeyPath)
+		log.Println("Regenerating new key pair (restart always generates fresh keys) ...")
+	} else {
+		log.Println("No existing public key found. Generating new key pair ...")
 	}
-
-	log.Println("No existing public key found. Generating new key pair...")
 
 	// Generate new key pair
 	keyPair, err := GenerateKeyPair()

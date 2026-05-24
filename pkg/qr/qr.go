@@ -116,6 +116,18 @@ func GenerateQRPNG(data []byte) ([]byte, error) {
 	return png, nil
 }
 
+// GenerateQRASCII generates an ASCII art representation of a QR code suitable
+// for terminal display. Uses the go-qrcode ToString() which renders with
+// unicode block characters (██ and spaces) for clear visual scanning.
+func GenerateQRASCII(content string) (string, error) {
+	qr, err := qrcode.New(content, qrcode.Medium)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate QR code for ASCII: %w", err)
+	}
+
+	return qr.ToString(false), nil
+}
+
 // GenerateRawQRPNG generates a QR code PNG image from raw data.
 // Unlike GenerateQRPNG, the data is encoded as-is without any prefix or base64 wrapping.
 // This is suitable for PEM private keys and other self-describing content.

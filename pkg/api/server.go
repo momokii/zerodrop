@@ -8,10 +8,82 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/zerodrop/terminal/pkg/config"
 )
+
+type rateLimiter struct {
+	visitors map[string]*visitorInfo
+	mu       sync.Mutex
+	limit    int
+}
+
+type visitorInfo struct {
+	count       int
+	windowStart time.Time
+}
+
+func newRateLimiter(limit int) *rateLimiter {
+	rl := &rateLimiter{
+		visitors: make(map[string]*visitorInfo),
+		limit:    limit,
+	}
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			rl.mu.Lock()
+			for ip, v := range rl.visitors {
+				if time.Since(v.windowStart) > time.Hour {
+					delete(rl.visitors, ip)
+				}
+			}
+			rl.mu.Unlock()
+		}
+	}()
+	return rl
+}
+
+func (rl *rateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	v, ok := rl.visitors[ip]
+
+	if !ok || now.Sub(v.windowStart) > time.Hour {
+		rl.visitors[ip] = &visitorInfo{count: 1, windowStart: now}
+		return true
+	}
+
+	v.count++
+	return v.count <= rl.limit
+}
+
+func (rl *rateLimiter) middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := extractIP(r.RemoteAddr)
+		if !rl.allow(ip) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "rate limit exceeded. Try again later.",
+			})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func extractIP(remoteAddr string) string {
+	idx := strings.LastIndex(remoteAddr, ":")
+	if idx == -1 {
+		return remoteAddr
+	}
+	return remoteAddr[:idx]
+}
 
 // Server handles HTTP requests for the ZeroDrop API
 type Server struct {
@@ -41,16 +113,19 @@ func NewServer(cfg *config.Config, spooler chan []byte, printer interface{}) *Se
 
 // setupRoutes configures all HTTP routes
 func (s *Server) setupRoutes() {
-	// API routes
-	apiRouter := s.router.PathPrefix("/api").Subrouter()
-	apiRouter.HandleFunc("/key", s.handleGetKey).Methods(http.MethodGet)
-	apiRouter.HandleFunc("/drop", s.handleDrop).Methods(http.MethodPost)
-	apiRouter.HandleFunc("/health", s.handleHealth).Methods(http.MethodGet)
+	// Rate limiter for API endpoints
+	rl := newRateLimiter(s.config.RateLimitRequestsPerHour)
 
-	// Legacy API routes (without /api prefix for backward compatibility)
-	s.router.HandleFunc("/key", s.handleGetKey).Methods(http.MethodGet)
-	s.router.HandleFunc("/drop", s.handleDrop).Methods(http.MethodPost)
-	s.router.HandleFunc("/health", s.handleHealth).Methods(http.MethodGet)
+	// API routes (rate limited)
+	apiRouter := s.router.PathPrefix("/api").Subrouter()
+	apiRouter.Handle("/key", rl.middleware(http.HandlerFunc(s.handleGetKey))).Methods(http.MethodGet)
+	apiRouter.Handle("/drop", rl.middleware(http.HandlerFunc(s.handleDrop))).Methods(http.MethodPost)
+	apiRouter.Handle("/health", rl.middleware(http.HandlerFunc(s.handleHealth))).Methods(http.MethodGet)
+
+	// Legacy API routes without /api prefix (rate limited, for backward compatibility)
+	s.router.Handle("/key", rl.middleware(http.HandlerFunc(s.handleGetKey))).Methods(http.MethodGet)
+	s.router.Handle("/drop", rl.middleware(http.HandlerFunc(s.handleDrop))).Methods(http.MethodPost)
+	s.router.Handle("/health", rl.middleware(http.HandlerFunc(s.handleHealth))).Methods(http.MethodGet)
 
 	// Serve static directory (reader.html, jsqr.min.js, etc.)
 	s.router.PathPrefix("/static/").Handler(

@@ -40,7 +40,11 @@ func (s *Spooler) Start(ctx context.Context) {
 			case <-ctx.Done():
 				log.Println("Spooler worker shutting down...")
 				return
-			case payload := <-s.queue:
+			case payload, ok := <-s.queue:
+				if !ok {
+					log.Println("Spooler worker shutting down...")
+					return
+				}
 				s.processJob(payload)
 			}
 		}

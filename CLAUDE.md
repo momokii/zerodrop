@@ -91,6 +91,7 @@ If any answer is "no", fix it before ending the session.
 | **Backend** | Go 1.26+ | ✅ Implemented |
 | **Crypto** | Curve25519 (X25519) via `crypto/ecdh`, `crypto/rand` only | ✅ Implemented |
 | **Frontend** | React + Vite + shadcn/ui + Tailwind CSS | ✅ Implemented |
+| **Offline Reader** | `static/reader.html` + jsQR + Web Crypto | ✅ Implemented (standalone Docker: `Dockerfile.reader`) |
 | **Infrastructure** | Docker Compose | ✅ Implemented |
 | **Hardware** | 58mm thermal printer (ESC/POS), USB connectivity | ✅ Supported |
 | **Testing** | Go testing framework + Mock Printer for CI | ✅ 23 tests passing |
@@ -159,6 +160,11 @@ PRINTER_TYPE=usb PRINTER_DEVICE=/dev/usb/lp0 ./bin/zerodrop
 
 # Frontend development (optional - for development only)
 cd frontend && npm run dev
+
+# Standalone reader (serve reader.html without backend)
+make serve-reader            # Local HTTP server on :8081
+make docker-reader-up        # Docker container on :8081
+# Open: http://localhost:8081/reader.html
 
 # Lint and security checks
 go fmt ./...

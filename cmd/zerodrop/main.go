@@ -6,6 +6,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/zerodrop/terminal/pkg/api"
 	"github.com/zerodrop/terminal/pkg/config"
 	"github.com/zerodrop/terminal/pkg/crypto"
@@ -16,6 +17,10 @@ import (
 
 func main() {
 	log.Println("ZeroDrop Terminal v1.0 Starting...")
+
+	if err := godotenv.Load(); err != nil {
+		log.Printf("No .env file found, using system environment variables")
+	}
 
 	// Load configuration from environment
 	cfg, err := config.LoadFromEnv()

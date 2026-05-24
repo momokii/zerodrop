@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log"
+	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -15,8 +17,36 @@ import (
 	"github.com/zerodrop/terminal/pkg/spooler"
 )
 
+// findProjectRoot walks up from the current directory to locate go.mod,
+// ensuring all relative paths resolve correctly regardless of where the
+// binary is invoked from (project root, cmd/zerodrop/, or elsewhere).
+func findProjectRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "."
+		}
+		dir = parent
+	}
+}
+
 func main() {
 	log.Println("ZeroDrop Terminal v1.0 Starting...")
+
+	if root := findProjectRoot(); root != "." {
+		if err := os.Chdir(root); err != nil {
+			log.Printf("WARNING: Could not chdir to project root %s: %v", root, err)
+		} else {
+			log.Printf("Working directory: %s", root)
+		}
+	}
 
 	if err := godotenv.Load(); err != nil {
 		log.Printf("No .env file found, using system environment variables")
@@ -116,7 +146,6 @@ func main() {
 
 	// Start API server in background
 	go func() {
-		log.Printf("API server starting on :8080")
 		if err := server.Start(":8080"); err != nil {
 			logger.Error("API server failed", map[string]interface{}{
 				"error": err.Error(),

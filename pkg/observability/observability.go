@@ -55,7 +55,11 @@ func (l *Logger) log(level, message string, fields map[string]interface{}) {
 	if !l.enabled {
 		// If logging is disabled, only log errors to stderr
 		if level == "ERROR" {
-			l.logger.Printf("[ERROR] %s", message)
+			if err, ok := fields["error"]; ok {
+				l.logger.Printf("[ERROR] %s: %v", message, err)
+			} else {
+				l.logger.Printf("[ERROR] %s", message)
+			}
 		}
 		return
 	}

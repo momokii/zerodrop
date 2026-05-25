@@ -75,6 +75,7 @@ Implementation — **M-05 Complete** — ZeroDrop Terminal v1.0 Ready for Produc
 | 11 | 2026-05-24 | SPKI public key format fix: SavePublicKeyToFile uses x509.MarshalPKIXPublicKey instead of publicKey.Bytes() so Web Crypto API importKey("spki",...) succeeds. GetPublicKeyFingerprint hashes SPKI DER to match frontend. LOG_ENABLED confirmed working. Docs audit and update. |
 | 12 | 2026-05-24 | **Traefik removal**: Deleted infrastructure/traefik/ and docker-compose.traefik.yml. Rewrote Makefile.deploy as Docker-only (removed binary/systemd/udev/firewall/rollback targets). Cleaned Traefik refs from README.md, docs/OVERVIEW.md, TESTING.md, CLAUDE.md, .claude/*.md, .env.example. All docs updated to Docker-only architecture. |
 | 13 | 2026-05-24 | **Rate limiter middleware**: Added per-IP sliding window rate limiter in pkg/api/server.go using existing RateLimitRequestsPerHour/RateLimitBurst config. Applied to all API endpoints. Returns HTTP 429 when exceeded. Restored RATE_LIMIT_ vars in .env.example with reverse proxy recommendation. Updated docs to reflect: built-in basic rate limiting + deploy behind nginx/caddy for production security. |
+| 14 | 2026-05-25 | **Bug fixes**: Fixed `make dev` running `go run` in background (`&`) causing Ctrl+C to leave zombie processes holding port 8080 — now runs in foreground so SIGINT reaches the shutdown handler. Fixed `make stop` to also kill `go run` and `go-build` processes. Fixed error logging to print actual error details (e.g. "address already in use") even when LOG_ENABLED=false. Fixed docker-compose.override.yml removing `build.target: builder` which skipped the Dockerfile runtime stage, producing images without ENTRYPOINT that exited immediately. |
 
 ---
 
@@ -262,6 +263,8 @@ Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go ser
 | `pkg/crypto/crypto.go` | Added `crypto/x509` import. `SavePublicKeyToFile`: `x509.MarshalPKIXPublicKey` instead of `publicKey.Bytes()`. `GetPublicKeyFingerprint`: same SPKI DER hash. |
 
 ## Last Updated
+
+2026-05-25 — **Bug Fixes**: Fixed `make dev` foreground (removed `&`), `make stop` kills `go run`/`go-build` processes, error logging details in LOG_ENABLED=false mode, docker-compose.override.yml `build.target: builder` removed to fix Docker entrypoint.
 
 2026-05-24 — **Rate Limiter Middleware**: Added per-IP sliding window rate limiter wired to existing config. Returns HTTP 429 when exceeded. Docs updated with reverse proxy recommendation for production.
 

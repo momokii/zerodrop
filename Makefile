@@ -151,11 +151,13 @@ docker-reader-down:
 
 dev: stop
 	@echo "→ Starting development server (Mock Printer)..."
-	PRINTER_TYPE=mock LOG_ENABLED=false go run ./cmd/zerodrop &
+	@echo "  Press Ctrl+C to stop"
+	PRINTER_TYPE=mock LOG_ENABLED=false go run ./cmd/zerodrop
 
 dev-usb: stop
 	@echo "→ Starting development server (USB Printer)..."
-	PRINTER_TYPE=usb LOG_ENABLED=false go run ./cmd/zerodrop &
+	@echo "  Press Ctrl+C to stop"
+	PRINTER_TYPE=usb LOG_ENABLED=false go run ./cmd/zerodrop
 
 dev-frontend:
 	@echo "→ Starting frontend dev server..."
@@ -258,7 +260,11 @@ deploy-dev: docker-build docker-up
 
 stop:
 	@echo "→ Stopping server..."
-	@-pkill -f $(BUILD_DIR)/$(BINARY_NAME) 2>/dev/null && echo "✓ Server stopped" || echo "✓ Server was not running"
+	@-pkill -f $(BUILD_DIR)/$(BINARY_NAME) 2>/dev/null || true
+	@-pkill -f "go run ./cmd/$(BINARY_NAME)" 2>/dev/null || true
+	@-pkill -f "go-build.*$(BINARY_NAME)" 2>/dev/null || true
+	@sleep 1
+	@printf "  Server: "; pgrep -f "$(BINARY_NAME)" > /dev/null 2>&1 && echo "running (try: kill -9)" || echo "stopped"
 
 restart: stop build-all
 	@echo "→ Restarting..."

@@ -116,16 +116,17 @@ func (s *Server) setupRoutes() {
 	// Rate limiter for API endpoints
 	rl := newRateLimiter(s.config.RateLimitRequestsPerHour)
 
-	// API routes (rate limited)
+	// Rate-limited routes (key and drop only — health is excluded so Docker
+	// HEALTHCHECK doesn't get 429 after a few checks)
 	apiRouter := s.router.PathPrefix("/api").Subrouter()
 	apiRouter.Handle("/key", rl.middleware(http.HandlerFunc(s.handleGetKey))).Methods(http.MethodGet)
 	apiRouter.Handle("/drop", rl.middleware(http.HandlerFunc(s.handleDrop))).Methods(http.MethodPost)
-	apiRouter.Handle("/health", rl.middleware(http.HandlerFunc(s.handleHealth))).Methods(http.MethodGet)
+	apiRouter.Handle("/health", http.HandlerFunc(s.handleHealth)).Methods(http.MethodGet)
 
-	// Legacy API routes without /api prefix (rate limited, for backward compatibility)
+	// Legacy routes without /api prefix
 	s.router.Handle("/key", rl.middleware(http.HandlerFunc(s.handleGetKey))).Methods(http.MethodGet)
 	s.router.Handle("/drop", rl.middleware(http.HandlerFunc(s.handleDrop))).Methods(http.MethodPost)
-	s.router.Handle("/health", rl.middleware(http.HandlerFunc(s.handleHealth))).Methods(http.MethodGet)
+	s.router.Handle("/health", http.HandlerFunc(s.handleHealth)).Methods(http.MethodGet)
 
 	// Serve static directory (reader.html, jsqr.min.js, etc.)
 	s.router.PathPrefix("/static/").Handler(

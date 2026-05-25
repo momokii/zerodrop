@@ -152,6 +152,10 @@ docker-reader-down:
 dev: stop
 	@echo "→ Starting development server (Mock Printer)..."
 	@echo "  Press Ctrl+C to stop"
+	@if [ ! -d "$(FRONTEND_DIST)" ]; then \
+		echo "  ⚠️  frontend/dist/ not found — run 'make build-frontend' first for the UI"; \
+		echo "  API endpoints will still work (http://localhost:8080/health, /key)"; \
+	fi
 	PRINTER_TYPE=mock LOG_ENABLED=false go run ./cmd/zerodrop
 
 dev-usb: stop

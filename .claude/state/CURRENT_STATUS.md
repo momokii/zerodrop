@@ -77,6 +77,7 @@ Implementation — **M-05 Complete** — ZeroDrop Terminal v1.0 Ready for Produc
 | 13 | 2026-05-24 | **Rate limiter middleware**: Added per-IP sliding window rate limiter in pkg/api/server.go using existing RateLimitRequestsPerHour/RateLimitBurst config. Applied to all API endpoints. Returns HTTP 429 when exceeded. Restored RATE_LIMIT_ vars in .env.example with reverse proxy recommendation. Updated docs to reflect: built-in basic rate limiting + deploy behind nginx/caddy for production security. |
 | 14 | 2026-05-25 | **Bug fixes**: Fixed `make dev` running `go run` in background (`&`) causing Ctrl+C to leave zombie processes holding port 8080 — now runs in foreground so SIGINT reaches the shutdown handler. Fixed `make stop` to also kill `go run` and `go-build` processes. Fixed error logging to print actual error details (e.g. "address already in use") even when LOG_ENABLED=false. Fixed docker-compose.override.yml removing `build.target: builder` which skipped the Dockerfile runtime stage, producing images without ENTRYPOINT that exited immediately. |
 | 15 | 2026-05-25 | **Docker health check + rate limiter fixes**: Fixed Docker HEALTHCHECK using `wget --spider` (not supported by Alpine's busybox wget) — changed to `wget -q -O /dev/null`. Excluded `/health` endpoint from rate limiter so Docker health checks don't get rate-limited (429) and mark container unhealthy. Port exposure was working correctly — previous "no ports" issue was caused by zombie `make dev` process holding host port 8080. |
+| 16 | 2026-05-25 | **Docker frontend build + make dev warning**: Added `frontend-builder` stage to Dockerfile (node:20-alpine) that builds the React SPA during docker build — frontend now ships inside the Docker image. `make dev` now warns when `frontend/dist/` is missing with instructions to run `make build-frontend`. Docker image size: 16.6MB. |
 
 ---
 
@@ -264,6 +265,8 @@ Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go ser
 | `pkg/crypto/crypto.go` | Added `crypto/x509` import. `SavePublicKeyToFile`: `x509.MarshalPKIXPublicKey` instead of `publicKey.Bytes()`. `GetPublicKeyFingerprint`: same SPKI DER hash. |
 
 ## Last Updated
+
+2026-05-25 — **Docker frontend build**: Added node:20-alpine frontend-builder stage to Dockerfile, React SPA now built during docker build (image: 16.6MB). `make dev` warns when frontend/dist/ is missing.
 
 2026-05-25 — **Docker health check + rate limiter fixes**: Fixed HEALTHCHECK using `wget --spider` (broken in busybox) → `wget -q -O /dev/null`. Excluded `/health` from rate limiter so Docker health checks don't 429. Zombie `make dev` processes holding port 8080 was root cause of "no ports" issue.
 

@@ -335,7 +335,8 @@ ZD1:base64data..."></textarea>
 
                 return publicKey;
             } catch (err) {
-                throw new Error('Failed to process private key: ' + err.message);
+                const detail = err.message || (err instanceof DOMException ? err.name : '') || 'unknown error';
+                throw new Error('Failed to process private key: ' + detail);
             }
         }
 

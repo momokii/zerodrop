@@ -63,14 +63,18 @@ func SavePublicKeyToFile(publicKey *ecdh.PublicKey, filepath string) error {
 }
 
 // LogPrivateKeyAsQR logs the private key as a scannable QR code to stdout
-// The private key is encoded in PEM format and prefixed with PRIVATE_KEY_QR:
+// The private key is encoded in PKCS#8 PEM format so it can be imported
+// by the reader.html page using crypto.subtle.importKey("pkcs8", ...).
 func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
-	// Encode to PEM format for readability
-	block := &pem.Block{
-		Type:  "PRIVATE KEY",
-		Bytes: privateKey.Bytes(),
+	// Marshal as PKCS#8 DER (the format Web Crypto API expects for pkcs8 import)
+	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		return fmt.Errorf("failed to marshal private key to PKCS#8: %w", err)
 	}
-	privateKeyPEM := pem.EncodeToMemory(block)
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: pkcs8Bytes,
+	})
 
 	// Print ASCII QR art to terminal for immediate scanning
 	asciiArt, asciiErr := qr.GenerateQRASCII(string(privateKeyPEM))

@@ -16,6 +16,7 @@ services:
       - PRINTER_TYPE=mock
       - PUBLIC_KEY_PATH=/app/data/public_key.pem
       - LOG_ENABLED=false
+      - TLS_ENABLED=${TLS_ENABLED:-false}
     volumes:
       # Persist public key
       - ./data:/app/data

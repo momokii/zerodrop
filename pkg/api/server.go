@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -16,6 +17,22 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/zerodrop/terminal/pkg/config"
 )
+
+// tlsErrorFilter discards Go runtime log lines about expected TLS handshake
+// failures (e.g. clients that don't trust the self-signed cert, or HTTP
+// clients hitting the HTTPS port). These are noisy and non-actionable when
+// using a self-signed development certificate.
+type tlsErrorFilter struct {
+	w io.Writer
+}
+
+func (f *tlsErrorFilter) Write(p []byte) (int, error) {
+	s := string(p)
+	if strings.Contains(s, "tls:") {
+		return len(p), nil // discard
+	}
+	return f.w.Write(p)
+}
 
 type rateLimiter struct {
 	visitors map[string]*visitorInfo
@@ -288,6 +305,9 @@ func (s *Server) ServeTLS(addr string, certPEM, keyPEM []byte) error {
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,
 		},
+		// Suppress expected TLS noise from clients that don't trust the
+		// self-signed certificate (Docker probes, other tools, etc.)
+		ErrorLog: log.New(&tlsErrorFilter{w: os.Stderr}, "", log.LstdFlags),
 	}
 
 	log.Printf("HTTPS server starting on %s", addr)

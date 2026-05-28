@@ -80,6 +80,10 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
 		fmt.Fprintf(os.Stdout, "\n%s\n", asciiArt)
 	}
 
+	// Also print the PEM text directly so users can copy-paste it
+	// (QR is convenient for camera scanning, PEM text for manual entry)
+	fmt.Fprintf(os.Stdout, "\n=== PRIVATE KEY (PEM) - Save this to decrypt payloads ===\n%s\n=== END PRIVATE KEY PEM ===\n\n", string(privateKeyPEM))
+
 	return nil
 }
 

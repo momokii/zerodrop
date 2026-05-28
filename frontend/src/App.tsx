@@ -31,6 +31,18 @@ function App() {
   useEffect(() => {
     async function init() {
       try {
+        // Web Crypto API (crypto.subtle) requires a secure context:
+        // HTTPS or http://localhost. Accessing from other devices or
+        // over plain HTTP makes crypto.subtle undefined.
+        if (!window.crypto.subtle) {
+          setStatus({
+            type: "error",
+            title: "Secure Context Required",
+            message: "This application requires HTTPS or localhost access. Web Crypto API is not available over plain HTTP from remote devices.",
+          });
+          return;
+        }
+
         // Check health first
         const health = await checkHealth();
         setIsHealthy(true);

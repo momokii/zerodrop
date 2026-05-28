@@ -266,6 +266,10 @@ Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go ser
 
 ## Last Updated
 
+2026-05-28 — **TLS support with self-signed certificate**: Added `TLS_ENABLED` env var (default `false`). When enabled, the server generates an ECDSA P-256 self-signed certificate at startup and serves HTTPS on port 8080 instead of HTTP. This makes `crypto.subtle` available from other devices since the browser considers HTTPS a secure context. Browsers will show a security warning for the self-signed cert — user clicks "Advanced" → "Proceed to site". Docker HEALTHCHECK updated to try HTTPS fallback with `--no-check-certificate` for self-signed certs. Commit `TBD`. Config: `TLS_ENABLED=true`.
+
+2026-05-28 — **Non-secure context detection fix**: Added early `window.crypto.subtle` check in App.tsx init() to catch the case where the page is accessed over plain HTTP from a non-localhost device. Web Crypto API (`crypto.subtle`) is only available in secure contexts (HTTPS or localhost). Previously showed a cryptic "Cannot read properties of undefined (reading 'digest')" error — now shows a clear message explaining HTTPS/localhost requirement. Frontend rebuilt in Docker image. Commit `3fc2407`. **Still blocked by browser security model**: this is a browser-enforced restriction and cannot be bypassed without HTTPS or localhost.
+
 2026-05-25 — **Docker frontend build**: Added node:20-alpine frontend-builder stage to Dockerfile, React SPA now built during docker build (image: 16.6MB). `make dev` warns when frontend/dist/ is missing.
 
 2026-05-25 — **Docker health check + rate limiter fixes**: Fixed HEALTHCHECK using `wget --spider` (broken in busybox) → `wget -q -O /dev/null`. Excluded `/health` from rate limiter so Docker health checks don't 429. Zombie `make dev` processes holding port 8080 was root cause of "no ports" issue.

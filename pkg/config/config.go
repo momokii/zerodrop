@@ -25,6 +25,11 @@ type Config struct {
 
 	// PublicKeyPath is where to save/load the public key
 	PublicKeyPath string
+
+	// TLSEnabled enables HTTPS with a self-signed certificate (default: false)
+	// When enabled, Web Crypto API works from other devices on the network
+	// since crypto.subtle requires a secure context (HTTPS or localhost).
+	TLSEnabled bool
 }
 
 // DefaultConfig returns a configuration with default values
@@ -116,6 +121,15 @@ func LoadFromEnv() (*Config, error) {
 	// Optional: PUBLIC_KEY_PATH
 	if val := os.Getenv("PUBLIC_KEY_PATH"); val != "" {
 		config.PublicKeyPath = val
+	}
+
+	// Optional: TLS_ENABLED — enables HTTPS with self-signed cert
+	if val := os.Getenv("TLS_ENABLED"); val != "" {
+		enabled, err := strconv.ParseBool(val)
+		if err != nil {
+			return nil, fmt.Errorf("TLS_ENABLED must be a boolean (true/false): %w", err)
+		}
+		config.TLSEnabled = enabled
 	}
 
 	return config, nil

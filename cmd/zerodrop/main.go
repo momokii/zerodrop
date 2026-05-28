@@ -66,6 +66,7 @@ func main() {
 	log.Printf("  Rate Limit: %d req/hour (burst: %d)", cfg.RateLimitRequestsPerHour, cfg.RateLimitBurst)
 	log.Printf("  Logging: %v", cfg.LogEnabled)
 	log.Printf("  Public Key Path: %s", cfg.PublicKeyPath)
+	log.Printf("  TLS Enabled: %v", cfg.TLSEnabled)
 
 	// Initialize logger
 	logger := observability.NewLogger(cfg.LogEnabled)
@@ -144,18 +145,42 @@ func main() {
 	// Start spooler worker
 	splr.Start(ctx)
 
-	// Start API server in background
-	go func() {
-		if err := server.Start(":8080"); err != nil {
-			logger.Error("API server failed", map[string]interface{}{
-				"error": err.Error(),
-			})
-			cancel()
+	// Start API server in background — HTTPS if TLS enabled, HTTP otherwise
+	if cfg.TLSEnabled {
+		log.Println("TLS enabled: generating self-signed certificate...")
+		certPEM, keyPEM, err := crypto.GenerateSelfSignedCert()
+		if err != nil {
+			log.Fatalf("Failed to generate self-signed certificate: %v", err)
 		}
-	}()
+		log.Println("Self-signed certificate generated.")
+		go func() {
+			if err := server.ServeTLS(":8080", certPEM, keyPEM); err != nil {
+				logger.Error("HTTPS server failed", map[string]interface{}{
+					"error": err.Error(),
+				})
+				cancel()
+			}
+		}()
+	} else {
+		go func() {
+			if err := server.Start(":8080"); err != nil {
+				logger.Error("API server failed", map[string]interface{}{
+					"error": err.Error(),
+				})
+				cancel()
+			}
+		}()
+	}
 
-	log.Println("\n=== ZeroDrop Terminal Ready ===")
-	log.Printf("API server listening on :8080")
+	if cfg.TLSEnabled {
+		log.Println("\n=== ZeroDrop Terminal Ready (HTTPS) ===")
+		log.Printf("HTTPS server listening on :8080 (self-signed certificate)")
+		log.Printf("WARNING: Browsers will show a security warning for self-signed certs.")
+		log.Printf("         Click 'Advanced' -> 'Proceed to site' to continue.")
+	} else {
+		log.Println("\n=== ZeroDrop Terminal Ready ===")
+		log.Printf("API server listening on :8080")
+	}
 	log.Printf("Endpoints:")
 	log.Printf("  GET  /key     - Retrieve public key")
 	log.Printf("  POST /drop    - Submit encrypted payload")

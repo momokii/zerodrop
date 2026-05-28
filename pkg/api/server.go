@@ -1,8 +1,10 @@
 package api
 
 import (
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -268,6 +270,28 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Start(addr string) error {
 	log.Printf("API server starting on %s", addr)
 	return http.ListenAndServe(addr, s.router)
+}
+
+// ServeTLS starts listening for HTTPS requests using the provided
+// PEM-encoded certificate and key. No temp files are used — the cert
+// is loaded directly into the tls.Config.
+func (s *Server) ServeTLS(addr string, certPEM, keyPEM []byte) error {
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return fmt.Errorf("failed to load TLS certificate: %w", err)
+	}
+
+	server := &http.Server{
+		Addr:    addr,
+		Handler: s.router,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		},
+	}
+
+	log.Printf("HTTPS server starting on %s", addr)
+	return server.ListenAndServeTLS("", "")
 }
 
 // spaHandler implements the http.Handler interface to serve a Single Page Application (SPA)

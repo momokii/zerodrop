@@ -62,15 +62,30 @@ func SavePublicKeyToFile(publicKey *ecdh.PublicKey, filepath string) error {
 	return nil
 }
 
-// LogPrivateKeyAsQR logs the private key as a scannable QR code to stdout
-// The private key is encoded in PKCS#8 PEM format so it can be imported
-// by the reader.html page using crypto.subtle.importKey("pkcs8", ...).
-func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
-	// Marshal as PKCS#8 DER (the format Web Crypto API expects for pkcs8 import)
-	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
-	if err != nil {
-		return fmt.Errorf("failed to marshal private key to PKCS#8: %w", err)
+// marshalX25519PKCS8 encodes an X25519 private key in RFC 8410 PKCS#8 DER
+// format. Go's x509.MarshalPKCS8PrivateKey double-wraps the key bytes
+// (OCTET STRING inside OCTET STRING) which the Web Crypto API rejects
+// with "The key is not of the expected type". This function produces the
+// correct single-wrapped format that browsers expect.
+func marshalX25519PKCS8(key *ecdh.PrivateKey) []byte {
+	raw := key.Bytes()
+	der := []byte{
+		0x30, 0x2c,                            // SEQUENCE (44 bytes content)
+		0x02, 0x01, 0x00,                      // INTEGER 0 (version)
+		0x30, 0x05,                            // SEQUENCE (AlgorithmIdentifier)
+		0x06, 0x03, 0x2b, 0x65, 0x6e,         // OID 1.3.101.110 (id-X25519)
+		0x04, 0x20,                            // OCTET STRING (32 bytes)
 	}
+	der = append(der, raw...)
+	return der
+}
+
+// LogPrivateKeyAsQR logs the private key as a scannable QR code to stdout
+// and as plain PEM text. The key is in RFC 8410 PKCS#8 format so it can be
+// imported by reader.html via crypto.subtle.importKey("pkcs8", ...).
+func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
+	// Correct PKCS#8 DER that Web Crypto API accepts
+	pkcs8Bytes := marshalX25519PKCS8(privateKey)
 	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "PRIVATE KEY",
 		Bytes: pkcs8Bytes,

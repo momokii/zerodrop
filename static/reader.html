@@ -520,6 +520,11 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
             return null;
         }
 
+        function looksLikeBase64(str) {
+            // Raw PEM body: alphanumeric + + / =, no whitespace, reasonable length
+            return str.length > 20 && /^[A-Za-z0-9+/=]+$/.test(str);
+        }
+
         function privateKeyChanged() {
             const val = privateKeyInput.value.trim();
             if (!val) return;
@@ -531,6 +536,12 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                 console.log('[DEBUG] PEM detected');
                 showStatus('PEM key: fingerprint may be unavailable in some browsers. JWK recommended for full functionality.', 'scanning');
                 loadPrivateKeyPEM(val);
+            } else if (looksLikeBase64(val)) {
+                // Raw base64 body without PEM headers — wrap and try
+                console.log('[DEBUG] raw base64 detected, wrapping as PEM');
+                const wrapped = '-----BEGIN PRIVATE KEY-----\n' + val + '\n-----END PRIVATE KEY-----';
+                showStatus('Raw key: fingerprint may be unavailable. JWK recommended.', 'scanning');
+                loadPrivateKeyPEM(wrapped);
             }
         }
 

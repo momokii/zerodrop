@@ -152,10 +152,15 @@ func (s *Server) setupRoutes() {
 		http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))),
 	)
 
-	// Also serve reader.html at root level for convenience
-	s.router.Handle("/reader.html", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Serve reader.html with no-cache headers and a cache-busting alias
+	serveReader := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		http.ServeFile(w, r, "./static/reader.html")
-	}))
+	})
+	s.router.Handle("/reader.html", serveReader)
+	s.router.Handle("/reader-v2.html", serveReader) // cache-busting alias
 
 	// Serve frontend SPA (all other routes)
 	spaHandler := spaHandler{staticFilePath: "./frontend/dist", indexPath: "index.html"}

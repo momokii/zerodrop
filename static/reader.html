@@ -255,8 +255,14 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
             <strong>Zero-Knowledge Guarantee:</strong> This decryption happens entirely in your browser.<br>
             No data is sent to any server. Your private key never leaves this device.
         </p>
+        <p class="info" style="font-size:10px;color:#999;margin-top:5px;">
+            v3 &middot; Loaded: <span id="loadTime">--</span>
+        </p>
     </div>
 
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <script src="jsqr.min.js"></script>
     <script type="module">
         const video = document.getElementById('video');
@@ -318,7 +324,37 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
             } catch { return false; }
         }
 
+        function base64urlDecode(str) {
+            // Convert base64url to base64 (restore padding + replace URL-safe chars)
+            const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+            const padded = b64 + '='.repeat((4 - b64.length % 4) % 4);
+            const bin = window.atob(padded);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return bytes;
+        }
+
+        // Construct SPKI DER for X25519 from raw 32-byte public key.
+        // SPKI = SEQUENCE { AlgorithmIdentifier SEQUENCE { OID X25519 }, BIT STRING { 00 + key } }
+        function rawPubkeyToSpkiDer(pubKeyBytes) {
+            const der = new Uint8Array(44);
+            let off = 0;
+            der[off++] = 0x30; der[off++] = 42;       // outer SEQUENCE (42 bytes)
+            der[off++] = 0x30; der[off++] = 5;         // AlgorithmIdentifier SEQUENCE (5 bytes)
+            der[off++] = 0x06; der[off++] = 3; der[off++] = 0x2B; der[off++] = 0x65; der[off++] = 0x6E; // OID 1.3.101.110
+            der[off++] = 0x03; der[off++] = 33; der[off++] = 0x00; // BIT STRING (33 bytes: 00 padding + 32 key)
+            der.set(pubKeyBytes, off);
+            return der.buffer;
+        }
+
+        async function calculateFingerprint(publicKeyData) {
+            const hashBuffer = await window.crypto.subtle.digest('SHA-256', publicKeyData);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
         async function extractPublicKey(keyInput) {
+            let publicKeyData = null;
             try {
                 if (isJWK(keyInput)) {
                     const jwk = JSON.parse(keyInput);
@@ -328,6 +364,10 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
                         true,
                         ['deriveBits']
                     );
+                    // Compute fingerprint from JWK's public key directly (more reliable)
+                    // since some browsers reject exportKey('spki', ...) on X25519 JWK keys.
+                    const rawPub = base64urlDecode(jwk.x);
+                    publicKeyData = rawPubkeyToSpkiDer(rawPub);
                 } else {
                     const keyData = pemToArrayBuffer(keyInput);
                     privateKey = await window.crypto.subtle.importKey(
@@ -336,9 +376,10 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
                         true,
                         ['deriveBits']
                     );
+                    publicKeyData = await window.crypto.subtle.exportKey('spki', privateKey);
                 }
 
-                const publicKeyData = await window.crypto.subtle.exportKey('spki', privateKey);
+                fingerprintSpan.textContent = 'Importing public key...';
                 publicKey = await window.crypto.subtle.importKey(
                     'spki', publicKeyData,
                     { name: 'X25519' },
@@ -346,6 +387,7 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
                     []
                 );
 
+                fingerprintSpan.textContent = 'Hashing fingerprint...';
                 const fingerprint = await calculateFingerprint(publicKeyData);
                 fingerprintSpan.textContent = fingerprint;
 
@@ -354,12 +396,6 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
                 const detail = err.message || (err instanceof DOMException ? err.name : '') || 'unknown error';
                 throw new Error('Failed to process private key: ' + detail);
             }
-        }
-
-        async function calculateFingerprint(publicKeyData) {
-            const hashBuffer = await window.crypto.subtle.digest('SHA-256', publicKeyData);
-            const hashArray = Array.from(new Uint8Array(hashBuffer));
-            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
         }
 
         async function decrypt(payloadString) {
@@ -479,6 +515,7 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
             }
         });
 
+        document.getElementById('loadTime').textContent = new Date().toISOString();
         initCamera();
     </script>
 </body>

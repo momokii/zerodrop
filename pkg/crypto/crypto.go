@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/zerodrop/terminal/pkg/qr"
 )
@@ -77,20 +78,7 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
 		Bytes: pkcs8Bytes,
 	})
 
-	// Print ASCII QR art to terminal for immediate scanning
-	asciiArt, asciiErr := qr.GenerateQRASCII(string(privateKeyPEM))
-	if asciiErr != nil {
-		log.Printf("WARNING: Could not generate ASCII QR: %v", asciiErr)
-	} else {
-		fmt.Fprintf(os.Stdout, "\n%s\n", asciiArt)
-	}
-
-	// Also print the PEM text directly so users can copy-paste it
-	// (QR is convenient for camera scanning, PEM text for manual entry)
-	fmt.Fprintf(os.Stdout, "\n=== PRIVATE KEY (PEM) - Save this to decrypt payloads ===\n%s\n=== END PRIVATE KEY PEM ===\n\n", string(privateKeyPEM))
-
-	// JWK format (more portable across browsers - RFC 8037)
-	// Some browsers reject X25519 PKCS#8 import but accept JWK.
+	// JWK format (RFC 8037) - more portable across browsers
 	privRaw := privateKey.Bytes()
 	pubRaw := privateKey.PublicKey().Bytes()
 	jwk := map[string]string{
@@ -100,7 +88,22 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
 		"d":   base64.RawURLEncoding.EncodeToString(privRaw),
 	}
 	jwkJSON, _ := json.Marshal(jwk)
-	fmt.Fprintf(os.Stdout, "=== PRIVATE KEY (JWK) - Alternative format if PEM fails ===\n%s\n=== END PRIVATE KEY JWK ===\n\n", string(jwkJSON))
+
+	// Build a single output buffer to avoid interleaving between stdout/stderr
+	var buf strings.Builder
+	asciiArt, asciiErr := qr.GenerateQRASCII(string(privateKeyPEM))
+	if asciiErr == nil {
+		buf.WriteString("\n")
+		buf.WriteString(asciiArt)
+		buf.WriteString("\n")
+	}
+	buf.WriteString("\n=== PRIVATE KEY (PEM) - Save this to decrypt payloads ===\n")
+	buf.Write(privateKeyPEM)
+	buf.WriteString("\n=== END PRIVATE KEY PEM ===\n\n")
+	buf.WriteString("=== PRIVATE KEY (JWK) - Alternative format if PEM fails ===\n")
+	buf.Write(jwkJSON)
+	buf.WriteString("\n=== END PRIVATE KEY JWK ===\n\n")
+	os.Stdout.WriteString(buf.String())
 
 	return nil
 }

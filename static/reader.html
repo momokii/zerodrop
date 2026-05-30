@@ -233,10 +233,11 @@ ZD1:base64data..."></textarea>
 
         <div class="section">
             <div class="section-title">3. Paste Private Key</div>
-            <textarea id="privateKey" placeholder="Paste your private key in PEM format...
------BEGIN PRIVATE KEY-----
-...
------END PRIVATE KEY-----"></textarea>
+            <textarea id="privateKey" placeholder="Paste private key (PEM or JWK)...
+PEM: -----BEGIN PRIVATE KEY-----
+     ...
+     -----END PRIVATE KEY-----
+JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"></textarea>
         </div>
 
         <button id="decryptBtn" disabled>🔓 Decrypt</button>
@@ -446,10 +447,12 @@ ZD1:base64data..."></textarea>
         });
 
         privateKeyInput.addEventListener('input', async () => {
-            const pem = privateKeyInput.value.trim();
-            if (pem.includes('-----BEGIN PRIVATE KEY-----')) {
+            const val = privateKeyInput.value.trim();
+            const hasPEM = val.includes('-----BEGIN');
+            const hasJWK = val.includes('"kty"') || val.startsWith('{');
+            if (hasPEM || hasJWK) {
                 try {
-                    await extractPublicKey(pem);
+                    await extractPublicKey(val);
                     decryptBtn.disabled = !qrCodeData;
                     const src = payloadSource === 'camera' ? 'QR scanned' : 'payload pasted';
                     showStatus('Private key loaded. ' + src + '. Ready to decrypt.', 'scanning');

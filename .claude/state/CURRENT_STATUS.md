@@ -266,7 +266,7 @@ Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go ser
 
 ## Last Updated
 
-2026-05-28 — **PKCS#8 DER format fix for X25519**: Go's `x509.MarshalPKCS8PrivateKey` produces double-wrapped OCTET STRING for X25519 (`04 22 04 20 <key>`), which the Web Crypto API rejects with "The key is not of the expected type". Replaced with manual DER construction in `marshalX25519PKCS8()` that produces correct single-wrapped format per RFC 8410 (`04 20 <key>`). This fixes `crypto.subtle.importKey("pkcs8", ...)` in reader.html. Commit `909ea61`.
+2026-05-30 — **JWK format for X25519 private key import**: Chromium's Web Crypto API rejects X25519 PKCS#8 import (`importKey("pkcs8", ...)`) with "The key is not of the expected type", regardless of single or double-wrapped DER. Switched to JWK format (RFC 8037) which has better cross-browser support. Server now logs both PEM (backward compat) and JWK JSON. reader.html auto-detects JWK vs PEM and uses the correct `importKey("jwk", ...)` path. Commit `b1b690e`.
 
 2026-05-28 — **TLS support with self-signed certificate**: Added `TLS_ENABLED` env var (default `false`). When enabled, the server generates an ECDSA P-256 self-signed certificate at startup and serves HTTPS on port 8080 instead of HTTP. This makes `crypto.subtle` available from other devices since the browser considers HTTPS a secure context. Browsers will show a security warning for the self-signed cert — user clicks "Advanced" → "Proceed to site". Docker HEALTHCHECK updated to try HTTPS fallback with `--no-check-certificate` for self-signed certs. Commit `TBD`. Config: `TLS_ENABLED=true`.
 

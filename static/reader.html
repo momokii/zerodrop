@@ -254,7 +254,7 @@ It looks like: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quo
             No data is sent to any server. Your private key never leaves this device.
         </p>
         <p class="info" style="font-size:10px;color:#999;margin-top:5px;">
-            v5 &middot; Loaded: <span id="loadTime">--</span>
+            v6 &middot; Loaded: <span id="loadTime">--</span>
         </p>
     </div>
 
@@ -471,13 +471,27 @@ It looks like: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quo
             }
         }
 
+        function extractJWK(text) {
+            // Try parsing as-is first
+            if (isJWK(text)) return text;
+            // Try extracting JSON between first { and last } (handles label-wrapped pastes)
+            const start = text.indexOf('{');
+            const end = text.lastIndexOf('}');
+            if (start !== -1 && end > start) {
+                const candidate = text.slice(start, end + 1);
+                if (isJWK(candidate)) return candidate;
+            }
+            return null;
+        }
+
         function privateKeyChanged() {
             const val = privateKeyInput.value.trim();
-            console.log('[DEBUG] privateKeyChanged, has value:', !!val, 'detected JWK:', isJWK(val));
-            if (val && isJWK(val)) {
-                console.log('[DEBUG] triggering loadPrivateKey');
-                loadPrivateKey(val);
-            } else if (val && val.includes('-----BEGIN')) {
+            if (!val) return;
+            const jwk = extractJWK(val);
+            if (jwk) {
+                console.log('[DEBUG] JWK detected, triggering loadPrivateKey');
+                loadPrivateKey(jwk);
+            } else if (val.includes('-----BEGIN')) {
                 console.log('[DEBUG] PEM detected - showing helpful error');
                 showStatus('PEM format not supported. Use the JWK format from server logs (JSON starting with {"kty":"OKP",...).', 'error');
             }

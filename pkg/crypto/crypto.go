@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"log"
@@ -62,30 +64,14 @@ func SavePublicKeyToFile(publicKey *ecdh.PublicKey, filepath string) error {
 	return nil
 }
 
-// marshalX25519PKCS8 encodes an X25519 private key in RFC 8410 PKCS#8 DER
-// format. Go's x509.MarshalPKCS8PrivateKey double-wraps the key bytes
-// (OCTET STRING inside OCTET STRING) which the Web Crypto API rejects
-// with "The key is not of the expected type". This function produces the
-// correct single-wrapped format that browsers expect.
-func marshalX25519PKCS8(key *ecdh.PrivateKey) []byte {
-	raw := key.Bytes()
-	der := []byte{
-		0x30, 0x2c,                            // SEQUENCE (44 bytes content)
-		0x02, 0x01, 0x00,                      // INTEGER 0 (version)
-		0x30, 0x05,                            // SEQUENCE (AlgorithmIdentifier)
-		0x06, 0x03, 0x2b, 0x65, 0x6e,         // OID 1.3.101.110 (id-X25519)
-		0x04, 0x20,                            // OCTET STRING (32 bytes)
-	}
-	der = append(der, raw...)
-	return der
-}
-
 // LogPrivateKeyAsQR logs the private key as a scannable QR code to stdout
-// and as plain PEM text. The key is in RFC 8410 PKCS#8 format so it can be
+// and as plain PEM text. The key is exported in PKCS#8 DER format so it can be
 // imported by reader.html via crypto.subtle.importKey("pkcs8", ...).
 func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
-	// Correct PKCS#8 DER that Web Crypto API accepts
-	pkcs8Bytes := marshalX25519PKCS8(privateKey)
+	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		return fmt.Errorf("failed to marshal private key to PKCS#8: %w", err)
+	}
 	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "PRIVATE KEY",
 		Bytes: pkcs8Bytes,
@@ -102,6 +88,19 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
 	// Also print the PEM text directly so users can copy-paste it
 	// (QR is convenient for camera scanning, PEM text for manual entry)
 	fmt.Fprintf(os.Stdout, "\n=== PRIVATE KEY (PEM) - Save this to decrypt payloads ===\n%s\n=== END PRIVATE KEY PEM ===\n\n", string(privateKeyPEM))
+
+	// JWK format (more portable across browsers - RFC 8037)
+	// Some browsers reject X25519 PKCS#8 import but accept JWK.
+	privRaw := privateKey.Bytes()
+	pubRaw := privateKey.PublicKey().Bytes()
+	jwk := map[string]string{
+		"kty": "OKP",
+		"crv": "X25519",
+		"x":   base64.RawURLEncoding.EncodeToString(pubRaw),
+		"d":   base64.RawURLEncoding.EncodeToString(privRaw),
+	}
+	jwkJSON, _ := json.Marshal(jwk)
+	fmt.Fprintf(os.Stdout, "=== PRIVATE KEY (JWK) - Alternative format if PEM fails ===\n%s\n=== END PRIVATE KEY JWK ===\n\n", string(jwkJSON))
 
 	return nil
 }

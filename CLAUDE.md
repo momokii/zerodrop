@@ -184,3 +184,9 @@ go vet ./...
 | 7 | 2026-05-11 | Standards update: All `.claude/` files updated with Go-specific conventions, security standards, and environment commands. `.gitignore` created. |
 | 8 | 2026-05-12 | M-04 implementation: USB printer with auto-detection, enhanced health check, Docker configuration |
 | 9 | 2026-05-12 | M-05 implementation: React + Vite + shadcn/ui frontend, Web Crypto API integration, SPA serving, production build. **All 5 milestones complete — ZeroDrop Terminal v1.0 production ready.** |
+| 10 | 2026-05-23 | ECIES crypto chain, QR ESC/POS rasterization, health 503, payload limit 250→400, Docker USB |
+| 11 | 2026-05-24 | SPKI public key format fix (x509.MarshalPKIXPublicKey), LOG_ENABLED confirmed, docs audit |
+| 12 | 2026-05-24 | Traefik removal, Docker-only deployment Makefile, docs cleanup |
+| 13 | 2026-05-24 | Rate limiter middleware, 429 responses, reverse proxy recommendation in docs |
+| 14-16 | 2026-05-25 | Bug fixes (make dev foreground, health check wget), Docker frontend build in multi-stage |
+| 17-20 | 2026-05-28 | Non-secure context detection, TLS self-signed cert + ServeTLS, TLS error suppression, PKCS#8 DER fix for X25519 |

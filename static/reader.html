@@ -310,21 +310,36 @@ ZD1:base64data..."></textarea>
             scan();
         }
 
-        async function extractPublicKey(privateKeyPEM) {
+        function isJWK(text) {
             try {
-                const keyData = pemToArrayBuffer(privateKeyPEM);
-                privateKey = await window.crypto.subtle.importKey(
-                    'pkcs8',
-                    keyData,
-                    { name: 'X25519' },
-                    true,
-                    ['deriveBits']
-                );
+                const obj = JSON.parse(text);
+                return obj && obj.kty === 'OKP' && obj.crv === 'X25519' && obj.d;
+            } catch { return false; }
+        }
+
+        async function extractPublicKey(keyInput) {
+            try {
+                if (isJWK(keyInput)) {
+                    const jwk = JSON.parse(keyInput);
+                    privateKey = await window.crypto.subtle.importKey(
+                        'jwk', jwk,
+                        { name: 'X25519' },
+                        true,
+                        ['deriveBits']
+                    );
+                } else {
+                    const keyData = pemToArrayBuffer(keyInput);
+                    privateKey = await window.crypto.subtle.importKey(
+                        'pkcs8', keyData,
+                        { name: 'X25519' },
+                        true,
+                        ['deriveBits']
+                    );
+                }
 
                 const publicKeyData = await window.crypto.subtle.exportKey('spki', privateKey);
                 publicKey = await window.crypto.subtle.importKey(
-                    'spki',
-                    publicKeyData,
+                    'spki', publicKeyData,
                     { name: 'X25519' },
                     true,
                     []

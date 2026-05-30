@@ -264,9 +264,28 @@ Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go ser
 |------|--------|
 | `pkg/crypto/crypto.go` | Added `crypto/x509` import. `SavePublicKeyToFile`: `x509.MarshalPKIXPublicKey` instead of `publicKey.Bytes()`. `GetPublicKeyFingerprint`: same SPKI DER hash. |
 
-## Last Updated
+## Session 21 — Log Ordering, Fingerprint Independence, Paste Listeners (2026-05-30)
 
-2026-05-30 — **JWK format for X25519 private key import**: Chromium's Web Crypto API rejects X25519 PKCS#8 import (`importKey("pkcs8", ...)`) with "The key is not of the expected type", regardless of single or double-wrapped DER. Switched to JWK format (RFC 8037) which has better cross-browser support. Server now logs both PEM (backward compat) and JWK JSON. reader.html auto-detects JWK vs PEM and uses the correct `importKey("jwk", ...)` path. Commit `b1b690e`.
+### What Changed
+
+**Log interleaving fix**: Consolidated all `LogPrivateKeyAsQR` stdout writes into a single buffer (`strings.Builder`) to prevent interleaving between `fmt.Fprintf(os.Stdout, ...)` and `log.Printf(os.Stderr, ...)` output in Docker logs. Commit includes this fix.
+
+**Fingerprint independence**: Separated `extractPublicKey` (private key import) from `updateFingerprint` (SPKI import + SHA-256 hash). Fingerprint failure now shows "Unavailable" instead of throwing an error that blocks decryption. The private key import succeeds independently — if fingerprint calculation fails (e.g., `importKey("spki", ...)` not supported for X25519), the decrypt button remains enabled.
+
+**Paste event listeners**: Added `paste` event listeners (with 50ms defer for value to settle) to both the private key and payload textareas, as a fallback for browsers where `input` events don't fire reliably on paste.
+
+**Cache busting**: Added `/reader-v2.html` route alias as an explicit cache-busting URL (`Cache-Control: no-cache, no-store, must-revalidate` headers). Added version badge (v3 → v4) with ISO timestamp for visual freshness confirmation.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `pkg/crypto/crypto.go` | Consolidated stdout writes into single buffer via `strings.Builder` |
+| `static/reader.html` | Separated fingerprint from key import (v4), paste listeners, cache meta tags |
+
+### Last Updated
+
+2026-05-30 — **Log ordering & fingerprint independence**: Log output consolidated to single buffer preventing stdout/stderr interleaving in Docker. Fingerprint calculation separated from private key import — failures show "Unavailable" instead of blocking decryption. Paste event listeners on both textareas. Reader version v4.
 
 2026-05-28 — **TLS support with self-signed certificate**: Added `TLS_ENABLED` env var (default `false`). When enabled, the server generates an ECDSA P-256 self-signed certificate at startup and serves HTTPS on port 8080 instead of HTTP. This makes `crypto.subtle` available from other devices since the browser considers HTTPS a secure context. Browsers will show a security warning for the self-signed cert — user clicks "Advanced" → "Proceed to site". Docker HEALTHCHECK updated to try HTTPS fallback with `--no-check-certificate` for self-signed certs. Commit `TBD`. Config: `TLS_ENABLED=true`.
 

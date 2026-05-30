@@ -174,7 +174,7 @@ go vet ./...
 ### Session History
 
 | Session | Date | Summary |
-|---|---|---|
+|---|---|---|---|
 | 1 | 2026-05-11 | Bootstrap: created full .claude/ agent infrastructure (settings, rules, standards, state tracking, templates) |
 | 2 | 2026-05-11 | PRD creation: drafted and approved PRD-001 for ZeroDrop Terminal v1.0 with 5 implementation milestones. Tech stack determined. |
 | 3 | 2026-05-11 | PRD revision v1.1: Frontend stack changed from Vanilla JS to React + Vite + shadcn/ui for better UX |
@@ -190,3 +190,4 @@ go vet ./...
 | 13 | 2026-05-24 | Rate limiter middleware, 429 responses, reverse proxy recommendation in docs |
 | 14-16 | 2026-05-25 | Bug fixes (make dev foreground, health check wget), Docker frontend build in multi-stage |
 | 17-20 | 2026-05-28 | Non-secure context detection, TLS self-signed cert + ServeTLS, TLS error suppression, PKCS#8 DER fix for X25519 |
+| 21 | 2026-05-30 | JWK format switch (X25519 Web Crypto compat), log ordering fix, fingerprint independence, paste listeners, cache busting reader URL |

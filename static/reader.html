@@ -256,7 +256,7 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
             No data is sent to any server. Your private key never leaves this device.
         </p>
         <p class="info" style="font-size:10px;color:#999;margin-top:5px;">
-            v3 &middot; Loaded: <span id="loadTime">--</span>
+            v4 &middot; Loaded: <span id="loadTime">--</span>
         </p>
     </div>
 
@@ -355,30 +355,31 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
 
         async function extractPublicKey(keyInput) {
             let publicKeyData = null;
-            try {
-                if (isJWK(keyInput)) {
-                    const jwk = JSON.parse(keyInput);
-                    privateKey = await window.crypto.subtle.importKey(
-                        'jwk', jwk,
-                        { name: 'X25519' },
-                        true,
-                        ['deriveBits']
-                    );
-                    // Compute fingerprint from JWK's public key directly (more reliable)
-                    // since some browsers reject exportKey('spki', ...) on X25519 JWK keys.
-                    const rawPub = base64urlDecode(jwk.x);
-                    publicKeyData = rawPubkeyToSpkiDer(rawPub);
-                } else {
-                    const keyData = pemToArrayBuffer(keyInput);
-                    privateKey = await window.crypto.subtle.importKey(
-                        'pkcs8', keyData,
-                        { name: 'X25519' },
-                        true,
-                        ['deriveBits']
-                    );
-                    publicKeyData = await window.crypto.subtle.exportKey('spki', privateKey);
-                }
+            if (isJWK(keyInput)) {
+                const jwk = JSON.parse(keyInput);
+                privateKey = await window.crypto.subtle.importKey(
+                    'jwk', jwk,
+                    { name: 'X25519' },
+                    true,
+                    ['deriveBits']
+                );
+                const rawPub = base64urlDecode(jwk.x);
+                publicKeyData = rawPubkeyToSpkiDer(rawPub);
+            } else {
+                const keyData = pemToArrayBuffer(keyInput);
+                privateKey = await window.crypto.subtle.importKey(
+                    'pkcs8', keyData,
+                    { name: 'X25519' },
+                    true,
+                    ['deriveBits']
+                );
+                publicKeyData = await window.crypto.subtle.exportKey('spki', privateKey);
+            }
+            return publicKeyData;
+        }
 
+        async function updateFingerprint(publicKeyData) {
+            try {
                 fingerprintSpan.textContent = 'Importing public key...';
                 publicKey = await window.crypto.subtle.importKey(
                     'spki', publicKeyData,
@@ -386,15 +387,12 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
                     true,
                     []
                 );
-
                 fingerprintSpan.textContent = 'Hashing fingerprint...';
                 const fingerprint = await calculateFingerprint(publicKeyData);
                 fingerprintSpan.textContent = fingerprint;
-
-                return publicKey;
             } catch (err) {
-                const detail = err.message || (err instanceof DOMException ? err.name : '') || 'unknown error';
-                throw new Error('Failed to process private key: ' + detail);
+                fingerprintSpan.textContent = 'Unavailable';
+                console.warn('Fingerprint unavailable:', err.message || err);
             }
         }
 
@@ -472,7 +470,7 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
         }
 
         // Manual payload paste
-        payloadInput.addEventListener('input', () => {
+        function payloadChanged() {
             const val = payloadInput.value.trim();
             if (val.startsWith('ZD1:')) {
                 qrCodeData = val;
@@ -480,23 +478,38 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
                 showStatus('Payload pasted manually. Ready to decrypt.', 'scanning');
                 decryptBtn.disabled = !privateKey;
             }
+        }
+        payloadInput.addEventListener('input', payloadChanged);
+        payloadInput.addEventListener('paste', () => {
+            setTimeout(payloadChanged, 50);
         });
 
-        privateKeyInput.addEventListener('input', async () => {
+        async function loadPrivateKey(val) {
+            try {
+                const publicKeyData = await extractPublicKey(val);
+                decryptBtn.disabled = !qrCodeData;
+                const src = payloadSource === 'camera' ? 'QR scanned' : 'payload pasted';
+                showStatus('Private key loaded. ' + src + '. Ready to decrypt.', 'scanning');
+                updateFingerprint(publicKeyData);
+            } catch (err) {
+                showStatus(err.message, 'error');
+                decryptBtn.disabled = true;
+            }
+        }
+
+        function privateKeyChanged() {
             const val = privateKeyInput.value.trim();
             const hasPEM = val.includes('-----BEGIN');
             const hasJWK = val.includes('"kty"') || val.startsWith('{');
             if (hasPEM || hasJWK) {
-                try {
-                    await extractPublicKey(val);
-                    decryptBtn.disabled = !qrCodeData;
-                    const src = payloadSource === 'camera' ? 'QR scanned' : 'payload pasted';
-                    showStatus('Private key loaded. ' + src + '. Ready to decrypt.', 'scanning');
-                } catch (err) {
-                    showStatus(err.message, 'error');
-                    decryptBtn.disabled = true;
-                }
+                loadPrivateKey(val);
             }
+        }
+
+        privateKeyInput.addEventListener('input', privateKeyChanged);
+        privateKeyInput.addEventListener('paste', () => {
+            // Defer to let the paste value settle, then trigger load
+            setTimeout(privateKeyChanged, 50);
         });
 
         decryptBtn.addEventListener('click', async () => {

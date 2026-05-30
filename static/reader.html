@@ -232,12 +232,10 @@ ZD1:base64data..."></textarea>
         </div>
 
         <div class="section">
-            <div class="section-title">3. Paste Private Key</div>
-            <textarea id="privateKey" placeholder="Paste private key (PEM or JWK)...
-PEM: -----BEGIN PRIVATE KEY-----
-     ...
-     -----END PRIVATE KEY-----
-JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"></textarea>
+            <div class="section-title">3. Paste Private Key (JWK format only)</div>
+            <textarea id="privateKey" placeholder='Paste the JWK private key from server logs.
+It looks like: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,&quot;x&quot;:&quot;...&quot;,&quot;d&quot;:&quot;...&quot;}'></textarea>
+            <p class="info" style="color:#c62828;font-size:11px;">Note: PEM format does NOT work in this browser (Chromium Web Crypto API limitation). Use the JWK format from the server logs.</p>
         </div>
 
         <button id="decryptBtn" disabled>🔓 Decrypt</button>
@@ -354,28 +352,18 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
         }
 
         async function extractPublicKey(keyInput) {
-            let publicKeyData = null;
-            if (isJWK(keyInput)) {
-                const jwk = JSON.parse(keyInput);
-                privateKey = await window.crypto.subtle.importKey(
-                    'jwk', jwk,
-                    { name: 'X25519' },
-                    true,
-                    ['deriveBits']
-                );
-                const rawPub = base64urlDecode(jwk.x);
-                publicKeyData = rawPubkeyToSpkiDer(rawPub);
-            } else {
-                const keyData = pemToArrayBuffer(keyInput);
-                privateKey = await window.crypto.subtle.importKey(
-                    'pkcs8', keyData,
-                    { name: 'X25519' },
-                    true,
-                    ['deriveBits']
-                );
-                publicKeyData = await window.crypto.subtle.exportKey('spki', privateKey);
+            if (!isJWK(keyInput)) {
+                throw new Error('Invalid JWK format. Copy the JSON object (starts with {"kty":"OKP",...) from server logs. PEM format is not supported in this browser.');
             }
-            return publicKeyData;
+            const jwk = JSON.parse(keyInput);
+            privateKey = await window.crypto.subtle.importKey(
+                'jwk', jwk,
+                { name: 'X25519' },
+                true,
+                ['deriveBits']
+            );
+            const rawPub = base64urlDecode(jwk.x);
+            return rawPubkeyToSpkiDer(rawPub);
         }
 
         async function updateFingerprint(publicKeyData) {
@@ -429,18 +417,6 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
 
             const decoder = new TextDecoder();
             return decoder.decode(plaintextBytes);
-        }
-
-        function pemToArrayBuffer(pem) {
-            const b64 = pem.replace(/-----BEGIN .*-----/g, '')
-                           .replace(/-----END .*-----/g, '')
-                           .replace(/\s/g, '');
-            const binaryString = window.atob(b64);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            return bytes.buffer;
         }
 
         function base64ToArrayBuffer(base64) {
@@ -497,12 +473,13 @@ JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,...}"><
 
         function privateKeyChanged() {
             const val = privateKeyInput.value.trim();
-            console.log('[DEBUG] privateKeyChanged, has value:', !!val, 'starts with {:', val.startsWith('{'), 'includes kty:', val.includes('"kty"'));
-            const hasPEM = val.includes('-----BEGIN');
-            const hasJWK = val.includes('"kty"') || val.startsWith('{');
-            if (hasPEM || hasJWK) {
+            console.log('[DEBUG] privateKeyChanged, has value:', !!val, 'detected JWK:', isJWK(val));
+            if (val && isJWK(val)) {
                 console.log('[DEBUG] triggering loadPrivateKey');
                 loadPrivateKey(val);
+            } else if (val && val.includes('-----BEGIN')) {
+                console.log('[DEBUG] PEM detected - showing helpful error');
+                showStatus('PEM format not supported. Use the JWK format from server logs (JSON starting with {"kty":"OKP",...).', 'error');
             }
         }
 

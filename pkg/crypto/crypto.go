@@ -97,10 +97,10 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
 		buf.WriteString(asciiArt)
 		buf.WriteString("\n")
 	}
-	buf.WriteString("=== PRIVATE KEY (JWK) - Use this in reader.html ===\n")
+	buf.WriteString("=== PRIVATE KEY (JWK) - Recommended for reader.html ===\n")
 	buf.Write(jwkJSON)
 	buf.WriteString("\n=== END PRIVATE KEY JWK ===\n\n")
-	buf.WriteString("=== PRIVATE KEY (PEM) - Not supported in browser ===\n")
+	buf.WriteString("=== PRIVATE KEY (PEM) - Alternative format ===\n")
 	buf.Write(privateKeyPEM)
 	buf.WriteString("\n=== END PRIVATE KEY PEM ===\n\n")
 	os.Stdout.WriteString(buf.String())

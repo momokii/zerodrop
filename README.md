@@ -421,12 +421,27 @@ All configuration is via environment variables.
 | `RATE_LIMIT_REQUESTS_PER_HOUR` | No | `5` | Integer ≥ 1 | Max requests per IP per hour (built-in rate limiting) |
 | `RATE_LIMIT_BURST` | No | `1` | Integer ≥ 1 | Burst capacity for rate limiter |
 | `LOG_ENABLED` | No | `false` | `true`, `false` | Enable structured JSON logging |
+| `TLS_ENABLED` | No | `false` | `true`, `false` | Enable built-in self-signed HTTPS. See [TLS Configuration](#tls-configuration) for when to enable. |
 
 *\*Required for USB printer when auto-detection fails.*
 
 **Rate Limiting** — The app enforces per-IP rate limiting using a sliding 1-hour window (default: 5 requests/IP/hour, configurable via `RATE_LIMIT_REQUESTS_PER_HOUR` and `RATE_LIMIT_BURST`). Returns HTTP 429 when exceeded.
 
 > **Production note:** This built-in rate limiter is a basic safeguard. For production deployments, run ZeroDrop behind a reverse proxy (nginx, caddy, Traefik, etc.) for TLS termination, advanced rate limiting, and OS-level security hardening.
+
+### TLS Configuration
+
+The `TLS_ENABLED` variable controls whether ZeroDrop serves HTTPS with a built-in self-signed certificate.
+
+| Deployment Mode | `TLS_ENABLED` | How HTTPS is handled |
+|----------------|---------------|---------------------|
+| **Localhost only** (default) | `false` | No HTTPS needed. Browsers treat `localhost` as a secure context — Web Crypto API works without HTTPS. |
+| **Direct network access** (other devices, no proxy) | `true` | ZeroDrop generates a self-signed ECDSA P-256 cert at startup. Browsers show a security warning — click Advanced → Proceed. |
+| **Behind a reverse proxy** (Traefik, nginx, caddy) | `false` | The reverse proxy terminates TLS. ZeroDrop serves plain HTTP internally. **Do not set `TLS_ENABLED=true`** — the built-in self-signed cert would conflict with the proxy's proper TLS. |
+
+**When to use *without* a reverse proxy**: If devices on your LAN need to reach ZeroDrop directly, set `TLS_ENABLED=true` so Web Crypto API works (it requires a secure context). The self-signed certificate is acceptable for LAN-only use.
+
+**When behind a reverse proxy** (recommended for production): Let the proxy handle TLS with a proper certificate (e.g., Let's Encrypt). Keep `TLS_ENABLED=false` (default). The proxy forwards requests to ZeroDrop over plain HTTP on the Docker network.
 
 **Structured Logging** (when `LOG_ENABLED=true`) outputs JSON log entries:
 ```json

@@ -305,6 +305,92 @@ else
 fi
 
 # ──────────────────────────────────────────────
+# Step 5: Configure .env file
+# ──────────────────────────────────────────────
+
+log_section "Step 5: Configuring .env file"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="$PROJECT_DIR/.env"
+ENV_EXAMPLE="$PROJECT_DIR/.env.example"
+
+if [ -n "$DETECTED_DEVICE" ]; then
+  DEV_VALUE="$DETECTED_DEVICE"
+else
+  DEV_VALUE=""  # empty = auto-detect
+fi
+
+ENV_CHANGED=false
+
+if [ ! -f "$ENV_FILE" ]; then
+  if [ -f "$ENV_EXAMPLE" ]; then
+    log_info "Creating $ENV_FILE from $(basename "$ENV_EXAMPLE")"
+    if [ "$DRY_RUN" = false ]; then
+      cp "$ENV_EXAMPLE" "$ENV_FILE"
+      log_ok "Created $ENV_FILE from template"
+    else
+      log_info "[DRY RUN] Would create $ENV_FILE from $(basename "$ENV_EXAMPLE")"
+    fi
+    ENV_CHANGED=true
+  else
+    log_info "Creating minimal $ENV_FILE"
+    if [ "$DRY_RUN" = false ]; then
+      touch "$ENV_FILE"
+      log_ok "Created $ENV_FILE"
+    else
+      log_info "[DRY RUN] Would create $ENV_FILE"
+    fi
+    ENV_CHANGED=true
+  fi
+else
+  log_ok "$ENV_FILE already exists"
+fi
+
+# Helper: update a single variable in .env
+# Usage: update_env_var VAR_NAME VALUE
+# Handles: commented lines, uncommented lines, missing lines
+update_env_var() {
+  local var_name="$1"
+  local var_value="$2"
+  local file="$ENV_FILE"
+
+  # Escape value for sed replacement (escapes | / & \)
+  local escaped_value
+  escaped_value=$(printf '%s\n' "$var_value" | sed 's|[\/&]|\\&|g')
+
+  if grep -qs "^[[:space:]]*#\?[[:space:]]*${var_name}=" "$file" 2>/dev/null; then
+    # Line exists (commented or not) — replace it uncommented
+    if [ "$DRY_RUN" = false ]; then
+      sed -i "s|^[[:space:]]*#\?[[:space:]]*${var_name}=.*|${var_name}=${escaped_value}|" "$file"
+    fi
+  else
+    if [ "$DRY_RUN" = false ]; then
+      echo "${var_name}=${var_value}" >> "$file"
+    fi
+  fi
+
+  if [ "$DRY_RUN" = false ]; then
+    log_ok "Set ${var_name}=${var_value} in $(basename "$ENV_FILE")"
+  else
+    log_info "[DRY RUN] Would set ${var_name}=${var_value} in $(basename "$ENV_FILE")"
+  fi
+  ENV_CHANGED=true
+}
+
+update_env_var "PRINTER_TYPE" "usb"
+
+if [ -n "$DEV_VALUE" ]; then
+  update_env_var "PRINTER_DEVICE" "$DEV_VALUE"
+else
+  update_env_var "PRINTER_DEVICE" ""
+fi
+
+if [ "$ENV_CHANGED" = false ]; then
+  log_ok "Printer variables already configured correctly in $(basename "$ENV_FILE")"
+fi
+
+# ──────────────────────────────────────────────
 # Summary
 # ──────────────────────────────────────────────
 
@@ -317,9 +403,28 @@ if [ "$DRY_RUN" = true ]; then
   exit 0
 fi
 
+ENV_STATUS=""
+if [ -f "$ENV_FILE" ]; then
+  ENV_PRINTER_TYPE=$(grep -s '^PRINTER_TYPE=' "$ENV_FILE" | head -1 | cut -d= -f2 || true)
+  ENV_PRINTER_DEVICE=$(grep -s '^PRINTER_DEVICE=' "$ENV_FILE" | head -1 | cut -d= -f2- || true)
+  if [ "$ENV_PRINTER_TYPE" = "usb" ]; then
+    ENV_STATUS="✅ configured (PRINTER_TYPE=usb"
+    if [ -n "$ENV_PRINTER_DEVICE" ]; then
+      ENV_STATUS="$ENV_STATUS, PRINTER_DEVICE=$ENV_PRINTER_DEVICE)"
+    else
+      ENV_STATUS="$ENV_STATUS, auto-detect)"
+    fi
+  else
+    ENV_STATUS="⚠️  PRINTER_TYPE not set to usb"
+  fi
+else
+  ENV_STATUS="⚠️  not found"
+fi
+
 echo "  User groups:   $( (groups "$CURRENT_USER" 2>/dev/null | grep -qw "lp" && echo "✅ lp ok") || echo "⚠️  lp missing")"
 echo "                 $( (groups "$CURRENT_USER" 2>/dev/null | grep -qw "dialout" && echo "✅ dialout ok") || echo "⚠️  dialout missing")"
 echo "  udev rules:    $( [ -f "$UDEV_RULES_DEST" ] && echo "✅ installed" || echo "⚠️  not installed")"
+echo "  .env config:   $ENV_STATUS"
 echo "  Device node:   $([ -n "$DETECTED_DEVICE" ] && echo "$DETECTED_DEVICE" || echo "none found")"
 echo "  Write access:  $([ -n "$DETECTED_DEVICE" ] && [ -w "$DETECTED_DEVICE" ] && echo "✅ yes" || echo "⚠️  no")"
 echo ""
@@ -336,6 +441,9 @@ elif [ -n "$DETECTED_DEVICE" ] && [ -w "$DETECTED_DEVICE" ]; then
   echo "  ${BOLD}Setup complete!${NC} You can now run ZeroDrop with your printer:"
   echo ""
   echo "    PRINTER_TYPE=usb PRINTER_DEVICE=\"\" ./bin/zerodrop"
+  echo ""
+  echo "  Or just use the configured .env:"
+  echo "    ./bin/zerodrop"
   echo ""
   echo "  Verify:"
   echo "    curl -s http://localhost:8080/health | python3 -m json.tool"

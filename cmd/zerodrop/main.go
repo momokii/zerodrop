@@ -77,7 +77,7 @@ func main() {
 
 	// Initialize or load key pair
 	log.Println("\n=== Key Provisioning ===")
-	keyPair, err := crypto.InitializeOrLoadKeyPair(cfg.PublicKeyPath)
+	keyPair, err := crypto.InitializeOrLoadKeyPair(cfg.PublicKeyPath, cfg.LogEnabled)
 	if err != nil {
 		log.Fatalf("Failed to initialize key pair: %v", err)
 	}

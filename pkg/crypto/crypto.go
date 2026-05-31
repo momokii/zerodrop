@@ -68,7 +68,7 @@ func SavePublicKeyToFile(publicKey *ecdh.PublicKey, filepath string) error {
 // LogPrivateKeyAsQR logs the private key as a scannable QR code to stdout
 // and as plain PEM text. The key is exported in PKCS#8 DER format so it can be
 // imported by reader.html via crypto.subtle.importKey("pkcs8", ...).
-func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
+func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey, logEnabled bool) error {
 	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
 	if err != nil {
 		return fmt.Errorf("failed to marshal private key to PKCS#8: %w", err)
@@ -78,17 +78,6 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
 		Bytes: pkcs8Bytes,
 	})
 
-	// JWK format (RFC 8037) - more portable across browsers
-	privRaw := privateKey.Bytes()
-	pubRaw := privateKey.PublicKey().Bytes()
-	jwk := map[string]string{
-		"kty": "OKP",
-		"crv": "X25519",
-		"x":   base64.RawURLEncoding.EncodeToString(pubRaw),
-		"d":   base64.RawURLEncoding.EncodeToString(privRaw),
-	}
-	jwkJSON, _ := json.Marshal(jwk)
-
 	// Build a single output buffer to avoid interleaving between stdout/stderr
 	var buf strings.Builder
 	asciiArt, asciiErr := qr.GenerateQRASCII(string(privateKeyPEM))
@@ -97,12 +86,30 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey) error {
 		buf.WriteString(asciiArt)
 		buf.WriteString("\n")
 	}
-	buf.WriteString("=== PRIVATE KEY (JWK) - Recommended for reader.html ===\n")
-	buf.Write(jwkJSON)
-	buf.WriteString("\n=== END PRIVATE KEY JWK ===\n\n")
-	buf.WriteString("=== PRIVATE KEY (PEM) - Alternative format ===\n")
-	buf.Write(privateKeyPEM)
-	buf.WriteString("\n=== END PRIVATE KEY PEM ===\n\n")
+
+	// JWK and PEM plaintext only when structured logging is enabled
+	// The QR code (above) is always shown — it is the primary delivery mechanism.
+	// Plaintext key material adds convenience for copy-paste but should not appear
+	// in logs when the operator has not explicitly opted into verbose output.
+	if logEnabled {
+		// JWK format (RFC 8037) - more portable across browsers
+		privRaw := privateKey.Bytes()
+		pubRaw := privateKey.PublicKey().Bytes()
+		jwk := map[string]string{
+			"kty": "OKP",
+			"crv": "X25519",
+			"x":   base64.RawURLEncoding.EncodeToString(pubRaw),
+			"d":   base64.RawURLEncoding.EncodeToString(privRaw),
+		}
+		jwkJSON, _ := json.Marshal(jwk)
+
+		buf.WriteString("=== PRIVATE KEY (JWK) - Recommended for reader.html ===\n")
+		buf.Write(jwkJSON)
+		buf.WriteString("\n=== END PRIVATE KEY JWK ===\n\n")
+		buf.WriteString("=== PRIVATE KEY (PEM) - Alternative format ===\n")
+		buf.Write(privateKeyPEM)
+		buf.WriteString("\n=== END PRIVATE KEY PEM ===\n\n")
+	}
 	os.Stdout.WriteString(buf.String())
 
 	return nil
@@ -148,7 +155,7 @@ func GetPublicKeyFingerprint(publicKey *ecdh.PublicKey) (string, error) {
 
 // InitializeOrLoadKeyPair tries to load an existing public key,
 // or generates a new key pair if none exists
-func InitializeOrLoadKeyPair(publicKeyPath string) (*KeyPair, error) {
+func InitializeOrLoadKeyPair(publicKeyPath string, logEnabled bool) (*KeyPair, error) {
 	// Check if public key already exists
 	if _, err := os.Stat(publicKeyPath); err == nil {
 		log.Printf("Existing public key found at %s (will be overwritten)", publicKeyPath)
@@ -170,7 +177,7 @@ func InitializeOrLoadKeyPair(publicKeyPath string) (*KeyPair, error) {
 	}
 
 	// Log private key as QR
-	err = LogPrivateKeyAsQR(keyPair.PrivateKey)
+	err = LogPrivateKeyAsQR(keyPair.PrivateKey, logEnabled)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log private key QR: %w", err)
 	}

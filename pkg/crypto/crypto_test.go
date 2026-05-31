@@ -49,8 +49,8 @@ func TestLogPrivateKeyAsQR(t *testing.T) {
 		t.Fatalf("GenerateKeyPair failed: %v", err)
 	}
 
-	// This should not panic, just log
-	err = LogPrivateKeyAsQR(keyPair.PrivateKey)
+	// This should not panic, just log (pass false for logEnabled in tests)
+	err = LogPrivateKeyAsQR(keyPair.PrivateKey, false)
 	if err != nil {
 		t.Fatalf("LogPrivateKeyAsQR failed: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestInitializeOrLoadKeyPair(t *testing.T) {
 	publicKeyPath := filepath.Join(tmpDir, "public_key.pem")
 
 	// First call should generate new key
-	keyPair1, err := InitializeOrLoadKeyPair(publicKeyPath)
+	keyPair1, err := InitializeOrLoadKeyPair(publicKeyPath, false)
 	if err != nil {
 		t.Fatalf("InitializeOrLoadKeyPair failed: %v", err)
 	}

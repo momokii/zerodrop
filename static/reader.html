@@ -286,7 +286,7 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                 showStatus('Scanning...', 'scanning');
                 startQRScan();
             } catch (err) {
-                showStatus('Camera access denied: ' + err.message + ' — You can paste the ZD1: payload manually below.', 'error');
+                showStatus('Camera access denied: ' + (err.message || err.name) + ' — You can paste the ZD1: payload manually below.', 'error');
             }
         }
 
@@ -304,11 +304,15 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                     const code = jsQR(imageData.data, imageData.width, imageData.height);
 
                     if (code && code.data && code.data.startsWith('ZD1:')) {
-                        qrCodeData = code.data;
-                        payloadSource = 'camera';
-                        payloadInput.value = ''; // clear manual input
-                        showStatus('QR scanned! Ready to decrypt.', 'scanning');
-                        decryptBtn.disabled = !privateKey;
+                        // Don't overwrite when user has manually pasted a payload
+                        if (!(payloadSource === 'manual' && payloadInput.value.trim().startsWith('ZD1:'))) {
+                            qrCodeData = code.data;
+                            payloadSource = 'camera';
+                            payloadInput.value = ''; // clear manual input
+                            clearResult();
+                            showStatus('QR scanned! Ready to decrypt.', 'scanning');
+                            decryptBtn.disabled = !privateKey;
+                        }
                     }
                 }
                 requestAnimationFrame(scan);
@@ -453,14 +457,20 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
         }
 
         function showStatus(message, type) {
-            statusDiv.textContent = message;
+            statusDiv.textContent = message || 'Unknown';
             statusDiv.className = 'status show ' + type;
+        }
+
+        function clearResult() {
+            resultDiv.className = 'result';
+            resultDiv.querySelector('.result-title').textContent = '';
+            resultDiv.querySelector('.result-content').textContent = '';
         }
 
         function showResult(type, title, content) {
             resultDiv.className = 'result ' + type;
             resultDiv.querySelector('.result-title').textContent = title;
-            resultDiv.querySelector('.result-content').textContent = content;
+            resultDiv.querySelector('.result-content').textContent = content || '(no details)';
         }
 
         // Manual payload paste
@@ -469,8 +479,15 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
             if (val.startsWith('ZD1:')) {
                 qrCodeData = val;
                 payloadSource = 'manual';
-                showStatus('Payload pasted manually. Ready to decrypt.', 'scanning');
+                clearResult();
+                showStatus('Payload pasted. Ready to decrypt.', 'scanning');
                 decryptBtn.disabled = !privateKey;
+            } else if (!val && payloadSource === 'manual') {
+                qrCodeData = '';
+                payloadSource = 'camera';
+                decryptBtn.disabled = true;
+                clearResult();
+                showStatus('Payload cleared. Paste a ZD1: payload or scan a QR.', 'scanning');
             }
         }
         payloadInput.addEventListener('input', payloadChanged);
@@ -489,8 +506,15 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                 showStatus('Private key loaded. ' + src + '. Ready to decrypt.', 'scanning');
                 updateFingerprint(publicKeyData);
             } catch (err) {
-                console.error('[DEBUG] loadPrivateKey error:', err.message);
-                showStatus(err.message, 'error');
+                console.error('[DEBUG] loadPrivateKey error:', err.message || err.name);
+                const errName = err.name || err.message || 'Unknown error';
+                if (err.name === 'OperationError') {
+                    showStatus(errName + ' — Make sure you copied the entire JWK correctly.', 'error');
+                } else if (err.name === 'InvalidCharacterError') {
+                    showStatus(errName + ' — The key data contains unexpected characters.', 'error');
+                } else {
+                    showStatus(err.message || err.name || 'Failed to load private key', 'error');
+                }
                 decryptBtn.disabled = true;
             }
         }
@@ -503,9 +527,21 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                 showStatus('PEM key loaded. Ready to decrypt.', 'scanning');
                 updateFingerprint(publicKeyData);
             } catch (err) {
-                console.warn('PEM import failed (non-blocking):', err.message);
-                // Don't disable button — key may already be set from previous JWK import
-                decryptBtn.disabled = !qrCodeData;
+                console.warn('PEM import failed (non-blocking):', err.message || err.name);
+                if (!privateKey) {
+                    const errName = err.name || err.message || 'Unknown error';
+                    if (err.name === 'OperationError') {
+                        showStatus(errName + ' — Check that you copied the entire key, or try JWK format.', 'error');
+                    } else if (err.name === 'InvalidCharacterError') {
+                        showStatus(errName + ' — The key contains unexpected characters.', 'error');
+                    } else {
+                        showStatus(err.message || err.name || 'Failed to import PEM key', 'error');
+                    }
+                    decryptBtn.disabled = true;
+                } else {
+                    // Key already loaded (e.g. via JWK), keep it
+                    decryptBtn.disabled = !qrCodeData;
+                }
             }
         }
 
@@ -527,21 +563,40 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
 
         function privateKeyChanged() {
             const val = privateKeyInput.value.trim();
-            if (!val) return;
+            if (!val) {
+                privateKey = null;
+                lastPublicKeyData = null;
+                decryptBtn.disabled = true;
+                clearResult();
+                showStatus('Private key cleared. Paste a private key to continue.', 'scanning');
+                fingerprintSpan.textContent = 'Calculating...';
+                return;
+            }
             const jwk = extractJWK(val);
             if (jwk) {
-                console.log('[DEBUG] JWK detected, triggering loadPrivateKey');
+                clearResult();
                 loadPrivateKey(jwk);
             } else if (val.includes('-----BEGIN')) {
-                console.log('[DEBUG] PEM detected');
+                clearResult();
                 showStatus('PEM key: fingerprint may be unavailable in some browsers. JWK recommended for full functionality.', 'scanning');
                 loadPrivateKeyPEM(val);
             } else if (looksLikeBase64(val)) {
-                // Raw base64 body without PEM headers — wrap and try
-                console.log('[DEBUG] raw base64 detected, wrapping as PEM');
+                clearResult();
                 const wrapped = '-----BEGIN PRIVATE KEY-----\n' + val + '\n-----END PRIVATE KEY-----';
                 showStatus('Raw key: fingerprint may be unavailable. JWK recommended.', 'scanning');
                 loadPrivateKeyPEM(wrapped);
+            } else {
+                // Unrecognized format — don't keep stale private key
+                privateKey = null;
+                lastPublicKeyData = null;
+                decryptBtn.disabled = true;
+                clearResult();
+                fingerprintSpan.textContent = 'Calculating...';
+                if (val.startsWith('ZD1:')) {
+                    showStatus('That looks like an encrypted payload. Paste your private key here (JWK or PEM).', 'scanning');
+                } else {
+                    showStatus('Paste a private key in JWK ({...}) or PEM (-----BEGIN) format.', 'scanning');
+                }
             }
         }
 
@@ -571,8 +626,17 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                 showResult('success', '\u2705 Decryption Successful', plaintext);
                 showStatus('Decryption complete', 'scanning');
             } catch (err) {
-                showResult('error', '\u274C Decryption Failed', err.message);
-                showStatus('Decryption failed', 'error');
+                const errName = err.name || err.message || 'Decryption failed';
+                let errMsg;
+                if (err.name === 'OperationError') {
+                    errMsg = errName + ' — Wrong private key or corrupted payload. Make sure the private key matches the one used to encrypt.';
+                } else if (err.name === 'InvalidCharacterError') {
+                    errMsg = errName + ' — The encrypted data appears corrupted.';
+                } else {
+                    errMsg = err.message || err.name || 'Decryption failed';
+                }
+                showResult('error', '\u274C Decryption Failed', errMsg);
+                showStatus(errMsg, 'error');
             }
         });
 

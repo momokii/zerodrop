@@ -72,7 +72,7 @@ BUILD_DIR=bin
 FRONTEND_DIR=frontend
 FRONTEND_DIST=$(FRONTEND_DIR)/dist
 GO_CMD=go
-DOCKER_COMPOSE=docker-compose
+DOCKER_COMPOSE=docker compose
 
 # Environment (can be overridden)
 PRINTER_TYPE?=mock

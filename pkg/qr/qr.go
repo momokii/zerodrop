@@ -97,7 +97,7 @@ func GenerateQRESCPOS(data []byte) ([]byte, error) {
 	}
 
 	// 6. Feed 5 lines and partial cut
-	escpos = append(escpos, []byte{0x1B, 0x64, 0x05}...) // Feed 5 lines
+	escpos = append(escpos, []byte{0x1B, 0x64, 0x05}...)       // Feed 5 lines
 	escpos = append(escpos, []byte{0x1D, 0x56, 0x42, 0x00}...) // Partial cut
 
 	return escpos, nil

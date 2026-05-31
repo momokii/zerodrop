@@ -366,18 +366,51 @@ Same testing flow at `http://localhost:8080`.
 
 ## USB Printer Testing (with Hardware)
 
+### Prerequisites
+
+1. **Printer connected** via USB and powered on
+2. **User has `lp` group access** — run `groups` to verify. If `lp` isn't listed:
+   ```bash
+   sudo usermod -aG lp,dialout $USER
+   # Then LOG OUT and log back in (group changes need a new session)
+   ```
+3. **Device exists** — verify: `ls -la /dev/usb/lp0`
+
+### Run with USB Printer
+
 ```bash
-# Auto-detect (scans /dev/usb/lp*, /dev/lp*, /dev/ttyUSB*)
+# Auto-detect (scans /dev/usb/lp0-2, /dev/usblp0-2)
 PRINTER_TYPE=usb PRINTER_DEVICE="" LOG_ENABLED=false ./bin/zerodrop
 
-# Specific device
+# Explicit device path (if auto-detect fails)
 PRINTER_TYPE=usb PRINTER_DEVICE=/dev/usb/lp0 LOG_ENABLED=false ./bin/zerodrop
+```
+
+### Verify
+
+```bash
+# Health check should show type "usb" and "available": true
+curl -s http://localhost:8080/health | python3 -m json.tool
+
+# Submit a test print (the QR will print on thermal paper)
+curl -X POST http://localhost:8080/drop \
+  -H "Content-Type: application/json" \
+  -d '{"payload":"ZD1:SGVsbG8gWmVyb0Ryb3Ah"}'
 ```
 
 **Behavior:**
 - If printer found → prints QR codes on 58mm thermal paper
 - If printer not found → gracefully falls back to Mock Printer (logs to stdout)
 - Health endpoint returns 503 if USB printer was expected but unavailable
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `permission denied` | User not in `lp` group | `sudo usermod -aG lp $USER` → log out/back in |
+| `/dev/usb/lp0` missing | Kernel didn't detect printer | Check cable + power. Run `dmesg` \| tail. |
+| Falls back to Mock | Auto-detect failed | Try `PRINTER_DEVICE=/dev/usb/lp0` explicitly |
+| Docker no port 8080 | Old process still running | `make stop` or `kill $(lsof -ti:8080)` |
 
 ---
 

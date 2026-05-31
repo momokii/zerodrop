@@ -149,7 +149,7 @@ go test ./... -v -race -cover
 # Build binary
 go build -o bin/zerodrop ./cmd/zerodrop
 
-# Run application (serves frontend + backend)
+# Run application (Mock Printer — no hardware needed)
 PRINTER_TYPE=mock ./bin/zerodrop
 
 # Run application (USB Printer with auto-detection)
@@ -169,6 +169,36 @@ make docker-reader-up        # Docker container on :8081
 # Lint and security checks
 go fmt ./...
 go vet ./...
+```
+
+### USB Printer Setup
+
+**Automated (recommended):**
+```bash
+./scripts/setup-printer.sh          # Full setup: detect, groups, udev, verify
+./scripts/setup-printer.sh --dry-run  # Preview without changes
+make setup-printer                  # Same via Makefile
+```
+
+**Manual steps (if needed):**
+```bash
+# 1. Plug in printer, verify OS detection
+ls -la /dev/usb/lp0
+
+# 2. Grant user permissions (needed once per machine)
+sudo usermod -aG lp,dialout $USER
+#    Then LOG OUT and log back in
+
+# 3. (Optional) Install udev rules for permanent device permissions
+make setup-printer
+# or: sudo cp /tmp/99-zerodrop-printer.rules /etc/udev/rules.d/
+#     sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# 4. Run with USB auto-detection
+PRINTER_TYPE=usb PRINTER_DEVICE="" ./bin/zerodrop
+
+# 5. Verify via health endpoint
+curl -s http://localhost:8080/health
 ```
 
 ### Session History

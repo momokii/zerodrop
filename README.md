@@ -416,14 +416,12 @@ All configuration is via environment variables.
 | Variable | Required | Default | Valid Values | Description |
 |----------|----------|---------|-------------|-------------|
 | `PRINTER_TYPE` | **Yes** | — | `mock`, `usb`, `tcp` | Printer implementation |
-| `PRINTER_DEVICE` | No* | `""` (auto-detect) | Device path or empty | USB printer device path (empty = auto-detect from `/dev/usb/lp*`, `/dev/lp*`, `/dev/ttyUSB*`) |
+| `PRINTER_DEVICE` | No | `""` (auto-detect) | Device path or empty | USB printer device path. Leave empty for auto-detection from `/dev/usb/lp*`, `/dev/usblp*`. Set to explicit path (e.g., `/dev/usb/lp0`) if auto-detection fails or you have multiple printers. |
 | `PUBLIC_KEY_PATH` | No | `./data/public_key.pem` | File path | Where to save/load the public key |
 | `RATE_LIMIT_REQUESTS_PER_HOUR` | No | `5` | Integer ≥ 1 | Max requests per IP per hour (built-in rate limiting) |
 | `RATE_LIMIT_BURST` | No | `1` | Integer ≥ 1 | Burst capacity for rate limiter |
 | `LOG_ENABLED` | No | `false` | `true`, `false` | Enable structured JSON logging |
 | `TLS_ENABLED` | No | `false` | `true`, `false` | Enable built-in self-signed HTTPS. See [TLS Configuration](#tls-configuration) for when to enable. |
-
-*\*Required for USB printer when auto-detection fails.*
 
 **Rate Limiting** — The app enforces per-IP rate limiting using a sliding 1-hour window (default: 5 requests/IP/hour, configurable via `RATE_LIMIT_REQUESTS_PER_HOUR` and `RATE_LIMIT_BURST`). Returns HTTP 429 when exceeded.
 
@@ -496,19 +494,48 @@ The server **never** possesses either the plaintext payload or the private key n
 
 ---
 
-## USB Printer Support
+## USB Printer Setup
 
-### Auto-Detection
+> **Pro tip:** For first-time setup, run the automated script instead of manual steps:
+> ```bash
+> ./scripts/setup-printer.sh        # Full setup (detect, groups, udev, verify)
+> ./scripts/setup-printer.sh --dry-run  # Preview only, no changes
+> make setup-printer                # Same via Makefile
+> ```
 
-USB printers are auto-detected by scanning common device paths (`/dev/usb/lp0-2`, `/dev/usblp0-2`) and identifying the hardware through sysfs (`idVendor`/`idProduct`).
+### Quick Start (Manual)
+
+```bash
+# 1. Plug in your 58mm thermal printer via USB
+
+# 2. Verify the OS detected it:
+ls -la /dev/usb/lp0
+
+# 3. Add your user to the required groups (needed once):
+sudo usermod -aG lp,dialout $USER
+#    Then LOG OUT and log back in for group changes to take effect.
+
+# 4. Run the app with USB printer (auto-detect):
+PRINTER_TYPE=usb PRINTER_DEVICE="" ./bin/zerodrop
+
+# If auto-detect works, you'll see:
+#   [USBPrinter] Auto-detected printer at /dev/usb/lp0
+#   [USBPrinter] Found thermal printer: POS-5890 at /dev/usb/lp0
+
+# 5. Test with a print submission:
+curl -X POST http://localhost:8080/drop \
+  -H "Content-Type: application/json" \
+  -d '{"payload":"ZD1:SGVsbG8gWmVyb0Ryb3Ah"}'
+```
 
 ### Supported Models
 
-| Vendor ID | Product ID | Model |
-|-----------|-----------|-------|
+The app auto-detects these 58mm thermal printers by USB vendor/product ID:
+
+| Vendor ID | Product ID | Model(s) |
+|-----------|-----------|----------|
 | `1504` | `0006` | POS-5890 / Generic ESC/POS |
-| `04b8` | `0202` | Epson TM-T88 (compatible) |
-| `04b8` | `0203` | Epson TM-T88II |
+| `04b8` | `0202`, `0203` | Epson TM-T88 series |
 | `0416` | `5011` | Rongta RP58 |
 | `0456` | `0808` | XPrinter XP-58III |
 | `0493` | `b002` | Citizen CT-S310 |
@@ -518,24 +545,123 @@ USB printers are auto-detected by scanning common device paths (`/dev/usb/lp0-2`
 | `0fe6` | `811e` | Zjiang |
 | `0418` | `0156` | Custom VG205 |
 
-### Fallback Behavior
+If your printer isn't listed, it may still work — the app falls back to treating it as a "Generic ESC/POS printer" and sends standard ESC/POS commands.
 
-If no USB printer is found or initialization fails, the system **gracefully falls back to Mock Printer** (logging output to stdout), ensuring the service remains operational without hardware.
+### Auto-Detection
 
-### UDEV Rules
+USB printers are auto-detected by scanning these device paths in order:
+`/dev/usb/lp0`, `/dev/usb/lp1`, `/dev/usb/lp2`, `/dev/usblp0`, `/dev/usblp1`, `/dev/usblp2`.
 
-For production use, install udev rules to grant the service user access to the printer:
+For each found device, the app reads sysfs (`idVendor`/`idProduct`) to identify the model. If the model is in the supported list, it logs the friendly name. Otherwise it logs "Unknown USB printer".
+
+### Step-by-Step: First-Time Printer Connection
+
+#### 1. Physically connect the printer
+Plug your 58mm thermal printer into a USB port on the machine running ZeroDrop. Turn the printer on (most models have a physical power switch).
+
+#### 2. Verify OS detection
+```bash
+# Check if Linux sees the printer:
+ls -la /dev/usb/lp0
+
+# If you see output like:
+#   crw-rw---- 1 root lp 180, 0 May 31 10:00 /dev/usb/lp0
+# → The OS detected it.
+
+# If /dev/usb/lp0 doesn't exist, check alternate paths:
+ls -la /dev/usb/lp* /dev/lp* 2>/dev/null
+
+# Check kernel messages:
+dmesg | tail -20 | grep -i "usb\|lp\|printer"
+```
+
+#### 3. Grant user permission (required once)
+The printer device is owned by `root:lp` with `660` permissions. Your user needs to be in the `lp` group to write to it:
 
 ```bash
-# The Makefile.deploy target generates and installs these rules:
+# Add yourself to the required groups:
+sudo usermod -aG lp,dialout $USER
+
+# ⚠️ IMPORTANT: Log out and log back in after running this command.
+# Group changes only apply to new login sessions.
+# Verify afterward:
+groups
+# Expected output should include: lp dialout
+```
+
+#### 4. (Optional) Install udev rules for permanent access
+This is needed if you run ZeroDrop under a dedicated service user (not your personal account). It ensures the printer device always has the right permissions when plugged in.
+
+```bash
+# Generate udev rules for all supported printers:
 make -f Makefile.deploy setup-udev
 
-# This creates /tmp/99-zerodrop-printer.rules with rules for all supported printers
-# To install:
+# Review the generated rules:
+less /tmp/99-zerodrop-printer.rules
+
+# Install them:
 sudo cp /tmp/99-zerodrop-printer.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
+
+#### 5. Run ZeroDrop with USB printer
+
+**Option A — Local binary:**
+```bash
+# Auto-detect (recommended — just plug and play):
+PRINTER_TYPE=usb PRINTER_DEVICE="" ./bin/zerodrop
+
+# Explicit device path (if auto-detect fails or you have multiple printers):
+PRINTER_TYPE=usb PRINTER_DEVICE=/dev/usb/lp0 ./bin/zerodrop
+```
+
+**Option B — Docker:**
+```bash
+# The production Compose file already includes USB device mapping and group permissions:
+make docker-up-prod
+
+# Or manually:
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+#### 6. Verify the printer works
+```bash
+# Check health endpoint — should show printer type "usb" and "available: true":
+curl -s http://localhost:8080/health | python3 -m json.tool
+
+# Expected response:
+# {
+#   "printer": {
+#     "available": true,
+#     "device_path": "/dev/usb/lp0",
+#     "model": "POS-5890 / Generic ESC/POS",
+#     "type": "usb"
+#   },
+#   "service": "zerodrop-terminal",
+#   "status": "healthy"
+# }
+
+# Submit a test print:
+curl -X POST http://localhost:8080/drop \
+  -H "Content-Type: application/json" \
+  -d '{"payload":"ZD1:SGVsbG8gWmVyb0Ryb3Ah"}'
+```
+
+### Troubleshooting
+
+| Problem | Likely Cause | Fix |
+|---------|-------------|-----|
+| `/dev/usb/lp0` doesn't exist | Printer not detected by kernel | Check USB cable, power. Run `dmesg` to see if the kernel sees it. Try a different USB port. |
+| `permission denied` on device | User not in `lp` group | Run `groups` to check. Add yourself: `sudo usermod -aG lp $USER` then log out and back in. |
+| Docker can't access printer | Host user not in group | `docker-compose.prod.yml` maps `group_add: [dialout, lp]` — this works only if the host user is in those groups. |
+| `health` shows "available: false" | Printer unreachable | Check USB cable. Try manually: `echo test > /dev/usb/lp0`. Run `make -f Makefile.deploy logs-docker` for details. |
+| Printer prints garbage | Wrong protocol / not ESC/POS | ZeroDrop uses ESC/POS. Some cheap printers require a mode switch via DIP switches or config software. |
+| App falls back to Mock | Auto-detect failed | Try explicit `PRINTER_DEVICE=/dev/usb/lp0`. Run with `LOG_ENABLED=true` for detailed logs. |
+
+### Fallback Behavior
+
+If no USB printer is found or initialization fails, the system **gracefully falls back to Mock Printer** (logs the QR to stdout). The service stays operational — you can submit payloads and see what would be printed, just without physical output.
 
 ---
 

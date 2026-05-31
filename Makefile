@@ -8,10 +8,12 @@ help:
 	@echo "DOCKER (primary workflow):"
 	@echo "  make docker-build        - Build Docker images"
 	@echo "  make docker-up           - Start services (development mode)"
+	@echo "  make docker-up-rebuild   - Rebuild image + start services (same as: make docker-up REBUILD=true)"
 	@echo "  make docker-up-prod      - Start services (production mode)"
 	@echo "  make docker-down         - Stop services"
 	@echo "  make docker-logs         - View service logs"
-	@echo "  make docker-restart      - Restart services"
+	@echo "  make docker-restart      - Restart services (no rebuild)"
+	@echo "  make docker-restart-rebuild - Restart services with rebuild"
 	@echo "  make docker-clean        - Remove all Docker resources"
 	@echo ""
 	@echo "READER (standalone offline decryptor):"
@@ -81,17 +83,23 @@ PUBLIC_KEY_PATH?=./data/public_key.pem
 # Docker Targets (primary workflow)
 # =============================================================================
 
-.PHONY: docker-build docker-up docker-up-prod docker-down docker-logs docker-restart docker-clean
+.PHONY: docker-build docker-up docker-up-rebuild docker-up-prod docker-down docker-logs docker-restart docker-restart-rebuild docker-clean
 
 docker-build:
 	@echo "→ Building Docker image..."
 	$(DOCKER_COMPOSE) build
 
+# Usage: make docker-up          (quick start, no rebuild)
+#        make docker-up-rebuild  (rebuild image then start)
+#        make docker-up REBUILD=true  (same as above)
 docker-up:
 	@echo "→ Starting services (development)..."
-	$(DOCKER_COMPOSE) up -d
+	$(DOCKER_COMPOSE) up -d $(if $(filter true,$(REBUILD)),--build,)
 	@echo "✓ Services running at http://localhost:8080"
 	@echo "  Logs: make docker-logs"
+
+docker-up-rebuild:
+	$(MAKE) docker-up REBUILD=true
 
 docker-up-prod:
 	@echo "→ Starting services (production)..."
@@ -109,6 +117,9 @@ docker-logs:
 
 docker-restart: docker-down docker-up
 	@echo "✓ Services restarted"
+
+docker-restart-rebuild: docker-down docker-up-rebuild
+	@echo "✓ Services restarted (with rebuild)"
 
 docker-clean:
 	@echo "→ Cleaning Docker resources..."

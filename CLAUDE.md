@@ -175,7 +175,7 @@ go vet ./...
 
 **Automated (recommended):**
 ```bash
-./scripts/setup-printer.sh          # Full setup: detect, groups, udev, verify
+./scripts/setup-printer.sh          # Full setup: detect, groups, udev, .env, verify
 ./scripts/setup-printer.sh --dry-run  # Preview without changes
 make setup-printer                  # Same via Makefile
 ```

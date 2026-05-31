@@ -498,9 +498,15 @@ The server **never** possesses either the plaintext payload or the private key n
 
 > **Pro tip:** For first-time setup, run the automated script instead of manual steps:
 > ```bash
-> ./scripts/setup-printer.sh        # Full setup (detect, groups, udev, verify)
+> ./scripts/setup-printer.sh        # Full setup (detect, groups, udev, .env, verify)
 > ./scripts/setup-printer.sh --dry-run  # Preview only, no changes
 > make setup-printer                # Same via Makefile
+> ```
+>
+> After the script completes, you can run the app directly — it will read
+> `PRINTER_TYPE=usb` from the configured `.env`:
+> ```bash
+> ./bin/zerodrop
 > ```
 
 ### Quick Start (Manual)

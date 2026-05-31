@@ -215,8 +215,8 @@ scan-vulns:
 # =============================================================================
 
 # Run the full printer setup script: detects hardware, adds groups,
-# generates and installs udev rules, and verifies write access.
-# Safe to run multiple times — skips already-done steps.
+# generates and installs udev rules, configures .env, and verifies
+# write access. Safe to run multiple times — skips already-done steps.
 # To preview without making changes: ./scripts/setup-printer.sh --dry-run
 setup-printer:
 	@echo "→ Running full printer setup..."

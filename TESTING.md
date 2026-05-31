@@ -366,7 +366,23 @@ Same testing flow at `http://localhost:8080`.
 
 ## USB Printer Testing (with Hardware)
 
-### Prerequisites
+### Automated Setup (recommended)
+
+Run the setup script once — it detects your printer, configures permissions,
+installs udev rules, and updates `.env` with `PRINTER_TYPE=usb`:
+
+```bash
+./scripts/setup-printer.sh          # Full setup (detect, groups, udev, .env)
+./scripts/setup-printer.sh --dry-run  # Preview without making changes
+```
+
+After the script completes, the app reads printer config from `.env` automatically:
+
+```bash
+./bin/zerodrop
+```
+
+### Prerequisites (if doing it manually)
 
 1. **Printer connected** via USB and powered on
 2. **User has `lp` group access** — run `groups` to verify. If `lp` isn't listed:
@@ -384,6 +400,9 @@ PRINTER_TYPE=usb PRINTER_DEVICE="" LOG_ENABLED=false ./bin/zerodrop
 
 # Explicit device path (if auto-detect fails)
 PRINTER_TYPE=usb PRINTER_DEVICE=/dev/usb/lp0 LOG_ENABLED=false ./bin/zerodrop
+
+# Or after running setup-printer.sh — config is in .env:
+./bin/zerodrop
 ```
 
 ### Verify

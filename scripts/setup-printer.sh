@@ -434,16 +434,19 @@ if [ "$NEEDS_RELOGIN" = true ]; then
   echo ""
   echo "  ${BOLD}Next step:${NC}"
   echo "  1. Log out and log back in"
-  echo "  2. Run the app: PRINTER_TYPE=usb PRINTER_DEVICE=\"\" ./bin/zerodrop"
-  echo "  3. Verify:    curl -s http://localhost:8080/health"
+  echo "  2. Run the app (reads .env automatically):"
+  echo "       ./bin/zerodrop"
+  echo "     Or with Docker:"
+  echo "       make docker-up           # dev mode (reads .env)"
+  echo "       make docker-up-prod      # production mode (reads .env)"
+  echo "  3. Verify: curl -s http://localhost:8080/health"
   echo ""
 elif [ -n "$DETECTED_DEVICE" ] && [ -w "$DETECTED_DEVICE" ]; then
   echo "  ${BOLD}Setup complete!${NC} You can now run ZeroDrop with your printer:"
   echo ""
-  echo "    PRINTER_TYPE=usb PRINTER_DEVICE=\"\" ./bin/zerodrop"
-  echo ""
-  echo "  Or just use the configured .env:"
-  echo "    ./bin/zerodrop"
+  echo "    ./bin/zerodrop                        # reads .env automatically"
+  echo "    make docker-up                        # Docker (dev mode)"
+  echo "    make docker-up-prod                   # Docker (production mode)"
   echo ""
   echo "  Verify:"
   echo "    curl -s http://localhost:8080/health | python3 -m json.tool"
@@ -460,4 +463,11 @@ else
     echo "  • Load USB printer module: sudo modprobe usblp"
     echo ""
   fi
+fi
+
+if [ -f "$ENV_FILE" ] && grep -qs '^PRINTER_TYPE=usb' "$ENV_FILE"; then
+  echo "  ${BOLD}Docker note:${NC} docker-compose files now read"
+  echo "  PRINTER_TYPE and PRINTER_DEVICE from .env automatically."
+  echo "  No manual editing needed."
+  echo ""
 fi

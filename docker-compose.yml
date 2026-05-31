@@ -13,7 +13,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - PRINTER_TYPE=mock
+      - PRINTER_TYPE=${PRINTER_TYPE:-mock}
+      - PRINTER_DEVICE=${PRINTER_DEVICE:-}
       - PUBLIC_KEY_PATH=/app/data/public_key.pem
       - LOG_ENABLED=${LOG_ENABLED:-false}
       - TLS_ENABLED=${TLS_ENABLED:-false}

@@ -6,12 +6,13 @@ services:
   zerodrop:
     restart: always
     environment:
-      - PRINTER_TYPE=usb
-      - PRINTER_DEVICE=/dev/usb/lp0
+      - PRINTER_TYPE=${PRINTER_TYPE:-usb}
+      - PRINTER_DEVICE=${PRINTER_DEVICE:-}
       - LOG_ENABLED=false
     # Map USB printer device (NOT privileged mode)
+    # Falls back to /dev/usb/lp0 if PRINTER_DEVICE is empty in .env
     devices:
-      - /dev/usb/lp0:/dev/usb/lp0
+      - "${PRINTER_DEVICE:-/dev/usb/lp0}:${PRINTER_DEVICE:-/dev/usb/lp0}"
     # Resource limits
     deploy:
       resources:

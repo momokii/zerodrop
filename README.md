@@ -317,11 +317,13 @@ docker-compose logs -f zerodrop
 docker-compose down
 
 # Using Makefile
-make docker-up          # Development mode
+make docker-up          # Development mode (no rebuild)
+make docker-up-rebuild  # Development mode (rebuild image first)
 make docker-up-prod     # Production mode (Docker-only)
 make docker-logs        # View logs
 make docker-down        # Stop services
-make docker-restart     # Restart services
+make docker-restart     # Restart services (no rebuild)
+make docker-restart-rebuild # Restart services with rebuild
 ```
 
 ---
@@ -674,10 +676,13 @@ The main `Makefile` provides comprehensive development automation:
 | | `test-coverage` | Run tests with coverage report |
 | | `test-integration` | Run integration tests against live server |
 | **Docker** | `docker-build` | Build Docker images |
-| | `docker-up` | Start services (dev mode) |
+| | `docker-up` | Start services (dev mode, no rebuild) |
+| | `docker-up-rebuild` | Rebuild image + start services |
 | | `docker-up-prod` | Start services (production mode) |
 | | `docker-down` | Stop services |
 | | `docker-logs` | View service logs |
+| | `docker-restart` | Restart services (no rebuild) |
+| | `docker-restart-rebuild` | Restart services with rebuild |
 | | `docker-clean` | Remove Docker resources |
 | **Quality** | `check` | Run all checks (deps, tests) |
 | | `check-deps` | Verify Go and Node are installed |

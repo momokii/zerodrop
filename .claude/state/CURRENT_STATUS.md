@@ -287,7 +287,33 @@ Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go ser
 
 2026-05-30 — **Log ordering & fingerprint independence**: Log output consolidated to single buffer preventing stdout/stderr interleaving in Docker. Fingerprint calculation separated from private key import — failures show "Unavailable" instead of blocking decryption. Paste event listeners on both textareas. Reader version v4.
 
-2026-05-28 — **TLS support with self-signed certificate**: Added `TLS_ENABLED` env var (default `false`). When enabled, the server generates an ECDSA P-256 self-signed certificate at startup and serves HTTPS on port 8080 instead of HTTP. This makes `crypto.subtle` available from other devices since the browser considers HTTPS a secure context. Browsers will show a security warning for the self-signed cert — user clicks "Advanced" → "Proceed to site". Docker HEALTHCHECK updated to try HTTPS fallback with `--no-check-certificate` for self-signed certs. Commit `TBD`. Config: `TLS_ENABLED=true`.
+## Session 22 — PEM Non-Blocking, Raw Base64, Makefile Rebuild (2026-05-31)
+
+### What Changed
+
+**PEM non-blocking**: PEM import failures no longer block decryption. `loadPrivateKeyPEM` catches errors without disabling the button — if a prior JWK import already set `privateKey`, decrypt still works. Fingerprint shows "Unavailable" on PEM failure.
+
+**Raw base64 paste**: Added `looksLikeBase64()` detection. Pasting just the raw PEM body (without `-----BEGIN`/`-----END` headers) auto-wraps in PEM markers and attempts import.
+
+**Label-wrapped JWK**: `extractJWK()` now handles pastes with surrounding label lines (`=== PRIVATE KEY (JWK) === ... === END PRIVATE KEY JWK ===`), extracting the JSON between first `{` and last `}`.
+
+**Makefile rebuild targets**: `docker-up` now supports `REBUILD=true` flag to add `--build` to `up -d`. New `docker-up-rebuild` and `docker-restart-rebuild` targets. Rebuilt Docker image with all latest changes baked in.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `static/reader.html` | PEM non-blocking (v7), raw base64 paste support, label-wrapped JWK extraction |
+| `pkg/crypto/crypto.go` | Log labels: "JWK - Recommended", "PEM - Alternative" |
+| `Makefile` | `docker-up-rebuild`, `docker-restart-rebuild`, `REBUILD=true` flag |
+| `README.md` | Updated docs for new Makefile targets |
+| `CLAUDE.md` | Session 22 history added |
+
+### Last Updated
+
+2026-05-31 — **PEM non-blocking + Makefile rebuild**: PEM import failures are non-blocking. Raw base64 paste auto-wraps as PEM. `extractJWK` handles label-wrapped pastes. `make docker-up-rebuild` and `make docker-restart-rebuild` added. Docker image rebuilt with all latest changes.
+
+2026-05-28 — **TLS support with self-signed certificate**: Added `TLS_ENABLED` env var (default `false`). When enabled, the server generates an ECDSA P-256 self-signed certificate at startup and serves HTTPS on port 8080 instead of HTTP. Makes `crypto.subtle` available from other devices (HTTPS = secure context). Browsers show security warning — click "Advanced" → "Proceed to site". Docker HEALTHCHECK uses `--no-check-certificate`. Commit `TBD`. Config: `TLS_ENABLED=true`.
 
 2026-05-28 — **Non-secure context detection fix**: Added early `window.crypto.subtle` check in App.tsx init() to catch the case where the page is accessed over plain HTTP from a non-localhost device. Web Crypto API (`crypto.subtle`) is only available in secure contexts (HTTPS or localhost). Previously showed a cryptic "Cannot read properties of undefined (reading 'digest')" error — now shows a clear message explaining HTTPS/localhost requirement. Frontend rebuilt in Docker image. Commit `3fc2407`. **Still blocked by browser security model**: this is a browser-enforced restriction and cannot be bypassed without HTTPS or localhost.
 

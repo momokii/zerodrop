@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import QRCode from "qrcode";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,6 +27,7 @@ function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isHealthy, setIsHealthy] = useState(false);
   const [printerInfo, setPrinterInfo] = useState<string>("");
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Fetch server public key and health on mount
   useEffect(() => {
@@ -74,6 +76,19 @@ function App() {
 
     init();
   }, []);
+
+  useEffect(() => {
+    if (step === "submit" && encryptedData && qrCanvasRef.current) {
+      QRCode.toCanvas(qrCanvasRef.current, encryptedData, {
+        width: 200,
+        margin: 2,
+        color: {
+          dark: "#000000",
+          light: "#ffffff",
+        },
+      });
+    }
+  }, [step, encryptedData]);
 
   const handleEncrypt = async () => {
     if (!plaintext.trim()) {
@@ -167,6 +182,38 @@ function App() {
         type: "success",
         title: "Copied!",
         message: "Public key copied to clipboard.",
+      });
+    }
+  };
+
+  const handleCopyPayload = async () => {
+    const success = await copyToClipboard(encryptedData);
+    if (success) {
+      setStatus({
+        type: "success",
+        title: "Copied!",
+        message: "Encrypted payload copied to clipboard.",
+      });
+    }
+  };
+
+  const handleDownloadQR = () => {
+    const canvas = qrCanvasRef.current;
+    if (!canvas) return;
+    try {
+      const url = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "zerodrop-payload.png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setStatus({
+        type: "error",
+        title: "Download Failed",
+        message: error instanceof Error ? error.message : "Failed to download QR code",
       });
     }
   };
@@ -300,7 +347,15 @@ function App() {
             {step === "submit" && (
               <>
                 <div className="space-y-2">
-                  <Label>Encrypted Data</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Encrypted Data</Label>
+                    <Button variant="ghost" size="sm" onClick={handleCopyPayload}>
+                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Copy
+                    </Button>
+                  </div>
                   <div className="bg-muted rounded-lg p-4">
                     <code className="text-xs break-all block">
                       {encryptedData}
@@ -309,6 +364,19 @@ function App() {
                   <p className="text-xs text-muted-foreground">
                     {encryptedData.length} characters (QR version header included)
                   </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>QR Code Preview</Label>
+                  <div className="flex justify-center bg-white rounded-lg p-4 border">
+                    <canvas ref={qrCanvasRef} width={200} height={200} />
+                  </div>
+                  <Button variant="outline" onClick={handleDownloadQR} className="w-full">
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Download QR Code
+                  </Button>
                 </div>
 
                 <div className="flex gap-3">

@@ -5,4 +5,5 @@
 services:
   zerodrop:
     environment:
-      - LOG_ENABLED=true
+      # Logging is controlled by LOG_ENABLED in .env
+      # (defaults to false if not set)

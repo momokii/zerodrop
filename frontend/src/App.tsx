@@ -31,7 +31,7 @@ function App() {
 
   // Fetch server public key and health on mount
   useEffect(() => {
-    async function init() {
+	async function init() {
       try {
         // Web Crypto API (crypto.subtle) requires a secure context:
         // HTTPS or http://localhost. Accessing from other devices or
@@ -45,14 +45,26 @@ function App() {
           return;
         }
 
-        // Check health first
-        const health = await checkHealth();
-        setIsHealthy(true);
-        if (health.printer) {
-          setPrinterInfo(`${health.printer.type} printer (${health.printer.available ? "available" : "unavailable"})`);
+        // Check health — non-blocking. If it fails (e.g. printer unavailable
+        // returns 503), we still proceed to fetch the key so the user can
+        // encrypt a message while the printer recovers.
+        try {
+          const health = await checkHealth();
+          setIsHealthy(true);
+          if (health.printer) {
+            const available = health.printer.available;
+            setPrinterInfo(`${health.printer.type} printer (${available ? "available" : "unavailable"})`);
+          }
+        } catch {
+          // Health check failed — printer might be in re-enumeration.
+          // The user can still encrypt while the spooler retries.
+          setStatus({
+            type: "warning",
+            title: "Printer Status Unknown",
+            message: "Could not verify printer status. You can still encrypt a message — it will be printed once the printer recovers.",
+          });
         }
 
-        // Fetch public key
         const publicKey = await fetchPublicKey();
         setServerPublicKey(publicKey);
 

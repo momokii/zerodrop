@@ -72,6 +72,15 @@ func (s *Spooler) processJob(payload []byte) {
 
 		if attempt < maxRetries {
 			log.Printf("Retrying in %v...", backoff)
+
+			// If the printer supports reconnection, attempt it before retry.
+			// This handles USB printer re-enumeration between retries.
+			if reconnector, ok := s.printer.(interface{ Reconnect() error }); ok {
+				if recErr := reconnector.Reconnect(); recErr != nil {
+					log.Printf("Reconnect before retry failed: %v", recErr)
+				}
+			}
+
 			time.Sleep(backoff)
 			backoff *= 2 // Exponential backoff
 		} else {

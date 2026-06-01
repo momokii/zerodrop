@@ -16,10 +16,11 @@ import (
 
 // usbfs ioctl constants (Linux x86_64)
 const (
-	usbDevfsClaimInterface   = 0x8004550f
-	usbDevfsReleaseInterface = 0x80045510
-	usbDevfsBulk             = 0xc0185502
-	usbDevfsSetConfiguration = 0x80045505
+	usbDevfsClaimInterface   = 0x8004550f  // _IOR('U', 15, unsigned int)
+	usbDevfsReleaseInterface = 0x80045510  // _IOR('U', 16, unsigned int)
+	usbDevfsBulk             = 0xc0185502  // _IOWR('U', 2, struct usbdevfs_bulktransfer)
+	usbDevfsSetConfiguration = 0x80045505  // _IOR('U', 5, unsigned int)
+	usbDevfsClearHalt        = 0x80045515  // _IOR('U', 21, unsigned int)
 )
 
 // usbBulkTransfer matches struct usbdevfs_bulktransfer from <linux/usbdevice_fs.h>
@@ -37,12 +38,12 @@ type usbBulkTransfer struct {
 // chips (e.g. Zjiang 0fe6:811e) that expose Bulk OUT + Interrupt IN instead of
 // Bulk OUT + Bulk IN, which causes usblp's probe to reject them.
 type RawUSBPrinter struct {
-	busNum     int
-	devNum     int
 	devicePath string // /dev/bus/usb/BBB/DDD
 	sysfsPath  string // /sys/bus/usb/devices/X-Y/
 	ifaceNum   int
 	bulkOutEp  uint8
+	vid        string // stored VID:PID for reliable re-scanning after
+	pid        string // USB re-enumeration (sysfs may be stale)
 	available  bool
 	mu         sync.Mutex
 }
@@ -58,12 +59,12 @@ func NewRawUSBPrinter(vid, pid string) (*RawUSBPrinter, error) {
 	devicePath := fmt.Sprintf("/dev/bus/usb/%03d/%03d", busNum, devNum)
 
 	p := &RawUSBPrinter{
-		busNum:     busNum,
-		devNum:     devNum,
 		devicePath: devicePath,
 		sysfsPath:  sysfsPath,
 		ifaceNum:   ifaceNum,
 		bulkOutEp:  bulkOutEp,
+		vid:        vid,
+		pid:        pid,
 		available:  true,
 	}
 
@@ -72,12 +73,13 @@ func NewRawUSBPrinter(vid, pid string) (*RawUSBPrinter, error) {
 
 // Print opens the USB device, claims the interface, sends ESC/POS data via
 // bulk transfer to the OUT endpoint, then releases the interface.
+// Handles USB re-enumeration: retries once with a fresh USB bus scan if the
+// first attempt fails (the Zjiang chip resets the USB connection after printing).
 func (p *RawUSBPrinter) Print(ciphertext []byte) error {
 	if !p.available {
 		return fmt.Errorf("raw USB printer is not available")
 	}
 
-	// Generate QR ESC/POS commands
 	escpos, err := qr.GenerateQRESCPOS(ciphertext)
 	if err != nil {
 		return fmt.Errorf("failed to generate QR: %w", err)
@@ -86,31 +88,68 @@ func (p *RawUSBPrinter) Print(ciphertext []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	for attempt := 1; attempt <= 2; attempt++ {
+		// Before each attempt, ensure the device path is valid.
+		// USB-to-parallel chips often re-enumerate after a print job.
+		if _, statErr := os.Stat(p.devicePath); os.IsNotExist(statErr) {
+			log.Printf("[RawUSB] Device %s gone, re-scanning USB bus...", p.devicePath)
+			p.updateDevicePath()
+			if !p.available {
+				return fmt.Errorf("USB device not found after re-enumeration")
+			}
+			log.Printf("[RawUSB] Re-enumerated device found at %s", p.devicePath)
+		}
+
+		err = p.tryPrintOnce(escpos)
+		if err == nil {
+			return nil
+		}
+
+		if attempt == 1 {
+			log.Printf("[RawUSB] Attempt %d failed (%v), re-scanning and retrying...", attempt, err)
+			p.updateDevicePath()
+			if !p.available {
+				p.available = false
+				return err
+			}
+		} else {
+			p.available = false
+			return err
+		}
+	}
+
+	return fmt.Errorf("raw USB printer print failed after retry")
+}
+
+// tryPrintOnce performs a single print attempt: opens the USB device, claims
+// the interface, clears any endpoint halt, and sends ESC/POS data via bulk
+// transfer. All cleanup (close, release) happens via defers that run on return.
+func (p *RawUSBPrinter) tryPrintOnce(escpos []byte) error {
 	fd, err := syscall.Open(p.devicePath, syscall.O_RDWR, 0)
 	if err != nil {
-		p.available = false
 		return fmt.Errorf("cannot open USB device %s: %w", p.devicePath, err)
 	}
 	defer syscall.Close(fd)
 
-	// Set configuration 1
 	config := uint32(1)
 	if err := ioctl(uintptr(fd), usbDevfsSetConfiguration, uintptr(unsafe.Pointer(&config))); err != nil {
-		// Non-fatal: device may already be configured
 		log.Printf("[RawUSB] set configuration: %v (continuing)", err)
 	}
 
-	// Claim interface
 	iface := uint32(p.ifaceNum)
 	if err := ioctl(uintptr(fd), usbDevfsClaimInterface, uintptr(unsafe.Pointer(&iface))); err != nil {
 		return fmt.Errorf("cannot claim USB interface %d: %w", p.ifaceNum, err)
 	}
 	defer func() {
 		releaseIf := uint32(p.ifaceNum)
-		if err := ioctl(uintptr(fd), usbDevfsReleaseInterface, uintptr(unsafe.Pointer(&releaseIf))); err != nil {
-			log.Printf("[RawUSB] release interface: %v", err)
+		if relErr := ioctl(uintptr(fd), usbDevfsReleaseInterface, uintptr(unsafe.Pointer(&releaseIf))); relErr != nil {
+			log.Printf("[RawUSB] release interface: %v", relErr)
 		}
 	}()
+
+	// Clear endpoint halt — some chips leave endpoints stalled after a reset.
+	ep := uint32(p.bulkOutEp)
+	_ = ioctl(uintptr(fd), usbDevfsClearHalt, uintptr(unsafe.Pointer(&ep)))
 
 	// Send ESC/POS data in chunks (max 4096 per bulk transfer)
 	const chunkSize = 4096
@@ -124,7 +163,7 @@ func (p *RawUSBPrinter) Print(ciphertext []byte) error {
 		xfer := usbBulkTransfer{
 			Ep:      uint32(p.bulkOutEp),
 			Len:     uint32(len(chunk)),
-			Timeout: 5000, // 5 seconds
+			Timeout: 5000,
 			Data:    unsafe.Pointer(&chunk[0]),
 		}
 
@@ -133,8 +172,7 @@ func (p *RawUSBPrinter) Print(ciphertext []byte) error {
 		}
 	}
 
-	log.Printf("[RawUSB] Print job sent to %s (%d bytes, %d ciphertext bytes)",
-		p.devicePath, len(escpos), len(ciphertext))
+	log.Printf("[RawUSB] Print job sent to %s (%d bytes)", p.devicePath, len(escpos))
 	return nil
 }
 
@@ -163,10 +201,19 @@ func (p *RawUSBPrinter) HealthCheck() map[string]interface{} {
 	status["device_path"] = p.devicePath
 	status["endpoint"] = fmt.Sprintf("0x%02x", p.bulkOutEp)
 	status["available"] = p.IsAvailable()
-	status["vid_pid"] = fmt.Sprintf("%s:%s", readSysfsFile(p.sysfsPath+"idVendor"), readSysfsFile(p.sysfsPath+"idProduct"))
+	status["vid_pid"] = fmt.Sprintf("%s:%s", p.vid, p.pid)
 
+	// Model name from sysfs (best-effort — path may be stale after re-enumeration)
 	if name := readSysfsFile(p.sysfsPath + "product"); name != "" {
 		status["model"] = name
+	} else {
+		// Fallback: use the known printers list
+		for _, kp := range knownPrinters {
+			if kp.vendorID == p.vid && kp.productID == p.pid {
+				status["model"] = kp.name
+				break
+			}
+		}
 	}
 
 	return status
@@ -177,16 +224,27 @@ func (p *RawUSBPrinter) GetDevicePath() string {
 	return p.devicePath
 }
 
-// updateDevicePath tries to re-find the device after USB re-enumeration
+// Reconnect re-scans the USB bus and re-establishes the device path.
+// This implements the Reconnector interface for use by the spooler.
+func (p *RawUSBPrinter) Reconnect() error {
+	p.updateDevicePath()
+	if !p.available {
+		return fmt.Errorf("raw USB printer not found after reconnect attempt")
+	}
+	log.Printf("[RawUSB] Reconnected to %s", p.devicePath)
+	return nil
+}
+
+// updateDevicePath re-scans the USB bus for the device using the stored VID:PID.
+// This is robust against USB re-enumeration because it does not depend on the
+// (potentially stale) sysfs path — the VID:PID is stored at initialization.
 func (p *RawUSBPrinter) updateDevicePath() {
-	vid := readSysfsFile(p.sysfsPath + "idVendor")
-	pid := readSysfsFile(p.sysfsPath + "idProduct")
-	if vid == "" || pid == "" {
+	if p.vid == "" || p.pid == "" {
 		p.available = false
 		return
 	}
 
-	newPath, newBus, newDev, _, _, err := scanUSBDevice(vid, pid)
+	newPath, newBus, newDev, _, _, err := scanUSBDevice(p.vid, p.pid)
 	if err != nil {
 		p.available = false
 		return
@@ -195,6 +253,9 @@ func (p *RawUSBPrinter) updateDevicePath() {
 	p.devicePath = fmt.Sprintf("/dev/bus/usb/%03d/%03d", newBus, newDev)
 	p.sysfsPath = newPath
 	p.available = true
+
+	log.Printf("[RawUSB] Device re-enumerated: old path updated to %s (bus %d dev %d)",
+		p.devicePath, newBus, newDev)
 }
 
 // ──────────────────────────────────────────────

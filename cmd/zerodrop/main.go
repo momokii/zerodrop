@@ -111,10 +111,22 @@ func main() {
 		log.Println("\n=== USB Printer Initialization ===")
 		usbPrinter, err := printer.NewUSBPrinter(cfg.PrinterDevice)
 		if err != nil {
-			log.Printf("USB printer initialization failed: %v", err)
-			log.Println("Falling back to Mock Printer...")
-			printImpl = printer.NewMockPrinter()
-			printInterface = printImpl
+			log.Printf("USB device node not found: %v", err)
+
+			// Try raw USB access (bypasses usblp for chips like Zjiang 0fe6:811e)
+			log.Println("Trying raw USB access (direct bulk transfer)...")
+			rawPrinter, rawErr := printer.DetectRawUSBPrinter()
+			if rawErr != nil {
+				log.Printf("Raw USB printer not found: %v", rawErr)
+				log.Println("Falling back to Mock Printer...")
+				printImpl = printer.NewMockPrinter()
+				printInterface = printImpl
+			} else {
+				printImpl = rawPrinter
+				printInterface = rawPrinter
+				log.Printf("Raw USB printer initialized at %s (ep %s)",
+					rawPrinter.GetDevicePath(), rawPrinter.HealthCheck()["endpoint"])
+			}
 		} else {
 			printImpl = usbPrinter
 			printInterface = usbPrinter

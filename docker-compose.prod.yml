@@ -9,10 +9,20 @@ services:
       - PRINTER_TYPE=${PRINTER_TYPE:-usb}
       - PRINTER_DEVICE=${PRINTER_DEVICE:-}
       - LOG_ENABLED=false
-    # Map USB printer device (NOT privileged mode)
-    # Falls back to /dev/usb/lp0 if PRINTER_DEVICE is empty in .env
+    # USB printer access — handles both initial detection and re-enumeration:
+    #   - devices: maps the USB device node at container start (set by setup-printer.sh)
+    #   - device_cgroup_rules: grants kernel-level access to ALL USB devices (major 189)
+    #     so re-enumerated devices (new devnum) are accessible without restart
+    #   - /sys/bus/usb read-only mount enables sysfs scanning for raw USB detection
     devices:
-      - "${PRINTER_DEVICE:-/dev/usb/lp0}:${PRINTER_DEVICE:-/dev/usb/lp0}"
+      - "${USB_RAW_DEVICE:-/dev/null}:${USB_RAW_DEVICE:-/dev/null}"
+    device_cgroup_rules:
+      - 'c 189:* rw'
+    volumes:
+      - ./data:/app/data
+      - /sys/bus/usb:/sys/bus/usb:ro
+      # Mount host USB device tree so re-enumerated devices are visible
+      - /dev/bus/usb:/dev/bus/usb:rshared
     # Resource limits
     deploy:
       resources:
@@ -22,12 +32,8 @@ services:
         reservations:
           cpus: '0.25'
           memory: 64M
-    volumes:
-      - ./data:/app/data
-    # USB device group permissions for printer access
     group_add:
       - dialout
       - lp
-    # Security options
     security_opt:
       - no-new-privileges:true

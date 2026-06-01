@@ -44,6 +44,15 @@ func NewUSBPrinter(devicePath string) (*USBPrinter, error) {
 		// Auto-detect printer
 		detected, err := detectPrinter()
 		if err != nil {
+			// No device node found — check if the printer is on the USB bus at all
+			if onBus, busInfo := checkUSBBus(); onBus {
+				log.Printf("[USBPrinter] Printer found on USB bus (%s) but no device node exists.", busInfo)
+				log.Printf("[USBPrinter] The usblp driver may not be bound. Try:")
+				log.Printf("[USBPrinter]   sudo modprobe -r usblp && sudo modprobe usblp")
+				log.Printf("[USBPrinter]   Then re-plug the USB cable.")
+				log.Printf("[USBPrinter]   Or run: ./scripts/setup-printer.sh")
+				return nil, fmt.Errorf("printer detected on USB bus (%s) but no /dev/usb/lp* device node — usblp driver may not be bound (try re-plugging or run setup-printer.sh): %w", busInfo, err)
+			}
 			return nil, fmt.Errorf("auto-detection failed: %w", err)
 		}
 		actualPath = detected
@@ -265,6 +274,46 @@ func DetectAvailablePrinters() []map[string]string {
 	}
 
 	return printers
+}
+
+// checkUSBBus scans /sys/bus/usb/devices/ for known thermal printer VID:PID pairs.
+// Returns (true, "VID:PID Model") if a known printer is found on the bus.
+// This detects printers that are connected but don't have a /dev/usb/lp* device node
+// (e.g., because the usblp driver isn't bound to the device).
+func checkUSBBus() (bool, string) {
+	entries, err := os.ReadDir("/sys/bus/usb/devices/")
+	if err != nil {
+		return false, ""
+	}
+
+	for _, entry := range entries {
+		devPath := "/sys/bus/usb/devices/" + entry.Name()
+
+		// sysfs entries are symlinks; IsDir() returns false for them.
+		// Validate by reading idVendor instead.
+		vidBytes, err := os.ReadFile(devPath + "/idVendor")
+		if err != nil {
+			continue
+		}
+		pidBytes, err := os.ReadFile(devPath + "/idProduct")
+		if err != nil {
+			continue
+		}
+
+		vid := strings.TrimSpace(string(vidBytes))
+		pid := strings.TrimSpace(string(pidBytes))
+
+		for _, kp := range knownPrinters {
+			if kp.vendorID == vid && kp.productID == pid {
+				return true, fmt.Sprintf("%s:%s %s", vid, pid, kp.name)
+			}
+			if kp.vendorID == vid {
+				return true, fmt.Sprintf("%s:%s", vid, pid)
+			}
+		}
+	}
+
+	return false, ""
 }
 
 // Reconnect attempts to reconnect to the printer

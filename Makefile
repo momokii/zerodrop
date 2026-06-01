@@ -7,9 +7,10 @@ help:
 	@echo ""
 	@echo "DOCKER (primary workflow):"
 	@echo "  make docker-build        - Build Docker images"
-	@echo "  make docker-up           - Start services (development mode)"
+	@echo "  make docker-up           - Start services (auto-detects usb/mock from .env)"
 	@echo "  make docker-up-rebuild   - Rebuild image + start services (same as: make docker-up REBUILD=true)"
 	@echo "  make docker-up-prod      - Start services (production mode)"
+	@echo "  make docker-up-prod-rebuild - Rebuild + start production (USB printer)"
 	@echo "  make docker-down         - Stop services"
 	@echo "  make docker-logs         - View service logs"
 	@echo "  make docker-restart      - Restart services (no rebuild)"
@@ -74,16 +75,26 @@ FRONTEND_DIST=$(FRONTEND_DIR)/dist
 GO_CMD=go
 DOCKER_COMPOSE=docker compose
 
-# Environment (can be overridden)
+# Auto-detect configuration from .env (for compose file selection)
+-include .env
+
+# Environment (can be overridden via command line; defaults if .env absent)
 PRINTER_TYPE?=mock
 LOG_ENABLED?=false
 PUBLIC_KEY_PATH?=./data/public_key.pem
+
+# Automatically include production compose override when PRINTER_TYPE=usb
+ifeq ($(PRINTER_TYPE),usb)
+  COMPOSE_OVERRIDE = -f docker-compose.prod.yml
+else
+  COMPOSE_OVERRIDE =
+endif
 
 # =============================================================================
 # Docker Targets (primary workflow)
 # =============================================================================
 
-.PHONY: docker-build docker-up docker-up-rebuild docker-up-prod docker-down docker-logs docker-restart docker-restart-rebuild docker-clean
+.PHONY: docker-build docker-up docker-up-rebuild docker-up-prod docker-up-prod-rebuild docker-down docker-logs docker-restart docker-restart-rebuild docker-clean
 
 docker-build:
 	@echo "→ Building Docker image..."
@@ -93,9 +104,9 @@ docker-build:
 #        make docker-up-rebuild  (rebuild image then start)
 #        make docker-up REBUILD=true  (same as above)
 docker-up:
-	@echo "→ Starting services (development)..."
-	$(DOCKER_COMPOSE) up -d $(if $(filter true,$(REBUILD)),--build,)
-	@echo "✓ Services running at http://localhost:8080"
+	@echo "→ Starting services ($(PRINTER_TYPE) mode)..."
+	$(DOCKER_COMPOSE) -f docker-compose.yml $(COMPOSE_OVERRIDE) up -d $(if $(filter true,$(REBUILD)),--build,)
+	@echo "✓ Services running at http://localhost:8080 ($(PRINTER_TYPE) mode)"
 	@echo "  Logs: make docker-logs"
 
 docker-up-rebuild:
@@ -104,6 +115,11 @@ docker-up-rebuild:
 docker-up-prod:
 	@echo "→ Starting services (production)..."
 	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml up -d
+	@echo "✓ Production services running at http://localhost:8080"
+
+docker-up-prod-rebuild:
+	@echo "→ Rebuilding and starting services (production)..."
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 	@echo "✓ Production services running at http://localhost:8080"
 
 docker-down:

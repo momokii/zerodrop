@@ -8,24 +8,39 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 )
 
-// GenerateQRESCPOS generates a QR code from ciphertext bytes and produces
-// ESC/POS commands suitable for 58mm thermal printers.
+// GenerateQRESCPOS generates a QR code from ciphertext bytes and rasterizes it
+// to ESC/POS GS v 0 bit-image commands suitable for 58mm thermal printers.
 //
-// It uses native ESC/POS QR code commands (GS ( k) which are supported by
-// most thermal printers including Zjiang, POS-5890, Epson, and XPrinter.
-// These commands are more reliable than GS v 0 raster bit-image because
-// the printer handles QR encoding internally — no manual pixel rasterization.
+// Unlike native QR commands (GS ( k), GS v 0 raster is universally supported
+// by all ESC/POS thermal printers including Zjiang, POS-5890, and Epson.
+// The QR is generated server-side using go-qrcode and sent as a pixel bitmap.
 //
 // The QR content is formatted as "ZD1:" + base64(ciphertext) for forward compatibility.
+//
+// GS v 0 command format: GS v 0 m xL xH yL yH d1...dk
+//   m = 0 (normal density)
+//   xL, xH = width in bytes (little-endian) — each byte encodes 8 horizontal dots
+//   yL, yH = height in dots (little-endian)
+//   Data: row-by-row, each byte = 8 horizontal pixels, MSB = leftmost
 func GenerateQRESCPOS(data []byte) ([]byte, error) {
 	// Build QR content: ZD1: + base64(ciphertext)
 	qrContent := "ZD1:" + base64.StdEncoding.EncodeToString(data)
-	qrData := []byte(qrContent)
 
-	// Validate content is non-empty
-	if len(qrData) == 0 {
-		return nil, fmt.Errorf("QR content is empty")
+	// Generate QR code bitmap using go-qrcode
+	qr, err := qrcode.New(qrContent, qrcode.Medium)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate QR code: %w", err)
 	}
+
+	// bitmap[y][x] is true for black pixel, false for white
+	bitmap := qr.Bitmap()
+	size := len(bitmap)
+	if size == 0 {
+		return nil, fmt.Errorf("QR bitmap is empty")
+	}
+
+	// bytesPerRow = number of bytes needed to represent 'size' horizontal dots
+	bytesPerRow := (size + 7) / 8
 
 	// Build ESC/POS command sequence
 	var escpos []byte
@@ -40,44 +55,29 @@ func GenerateQRESCPOS(data []byte) ([]byte, error) {
 	header := "\nZERO DROP ENCRYPTED PAYLOAD\n\n"
 	escpos = append(escpos, []byte(header)...)
 
-	// 4. Generate native ESC/POS QR code commands (GS ( k)
-	// This is the standard ESC/POS QR code approach — the printer renders the
-	// QR internally, avoiding pixel-level rasterization issues.
-	//
-	// Command format: GS ( k pL pH cn fn [params...]
-	//   cn = 49 (0x31) = QR Code
-	//   pL, pH = parameter length (little-endian)
+	// 4. GS v 0 raster bit-image command
+	// GS v 0 m=0 xL xH yL yH [data]
+	gsCmd := []byte{0x1D, 0x76, 0x30, 0x00} // GS v 0, m=0 (normal density)
+	// xL, xH = width in bytes (little-endian)
+	gsCmd = append(gsCmd, byte(bytesPerRow&0xFF), byte((bytesPerRow>>8)&0xFF))
+	// yL, yH = height in dots (little-endian)
+	gsCmd = append(gsCmd, byte(size&0xFF), byte((size>>8)&0xFF))
 
-	// 4a. Select QR model 2
-	//   fn = 65 (0x41) = select model
-	//   params: n1=50 (model 2), n2=0
-	escpos = append(escpos, 0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00)
-
-	// 4b. Set module (dot) size
-	//   fn = 67 (0x43) = set module size
-	//   params: n = module size in dots (1-16)
-	//
-	// Size 6 produces a ~160-220 dot wide QR (fits 58mm paper at 384 dot width).
-	// For longer content (more ciphertext bytes), a smaller module size may be
-	// needed so the QR fits within page width. Content up to ~535 chars (ZD1: +
-	// base64 of 400 ciphertext bytes) with module 6 yields QR version ~10-12,
-	// which fits 58mm paper.
-	moduleSize := byte(6)
-	escpos = append(escpos, 0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, moduleSize)
-
-	// 4c. Store QR data in printer buffer
-	//   fn = 80 (0x50) = store data
-	//   params: m=48 (store in symbol storage), then raw data bytes
-	//   pL = len(data) + 3 (3 = 1 byte m + 2 bytes for the length header itself)
-	dataLen := len(qrData)
-	pl := dataLen + 3
-	escpos = append(escpos, 0x1D, 0x28, 0x6B, byte(pl&0xFF), byte((pl>>8)&0xFF), 0x31, 0x50, 0x30)
-	escpos = append(escpos, qrData...)
-
-	// 4d. Print the stored QR code
-	//   fn = 81 (0x51) = print QR
-	//   params: m=48
-	escpos = append(escpos, 0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30)
+	// Build image data: row-by-row, each byte encodes 8 horizontal pixels
+	// MSB (bit 7) = leftmost pixel in that group of 8
+	for y := 0; y < size; y++ {
+		for xb := 0; xb < bytesPerRow; xb++ {
+			var imgByte byte
+			for bit := 0; bit < 8; bit++ {
+				xPos := xb*8 + bit
+				if xPos < size && bitmap[y][xPos] {
+					imgByte |= 1 << (7 - bit) // MSB = leftmost pixel
+				}
+			}
+			gsCmd = append(gsCmd, imgByte)
+		}
+	}
+	escpos = append(escpos, gsCmd...)
 
 	// 5. Print ciphertext as readable text below QR (fallback)
 	escpos = append(escpos, []byte("\n\n--- CIPHERTEXT ---\n")...)

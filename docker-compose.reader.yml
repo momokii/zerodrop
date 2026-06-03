@@ -16,3 +16,4 @@ services:
     restart: unless-stopped
     ports:
       - "8081:80"
+      - "443:443"

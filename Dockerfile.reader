@@ -2,8 +2,20 @@
 # Minimal nginx image serving static/reader.html + jsQR
 # Recipients run this to access the offline decryption tool
 # without needing the full ZeroDrop backend.
+# HTTPS is enabled for camera access via self-signed cert.
 
 FROM nginx:alpine
+
+# Install openssl for self-signed cert generation
+RUN apk add --no-cache openssl
+
+# Generate self-signed SSL certificate (valid for 3650 days ~10 years)
+RUN mkdir -p /etc/nginx/ssl && \
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+      -keyout /etc/nginx/ssl/self-signed.key \
+      -out /etc/nginx/ssl/self-signed.crt \
+      -subj "/CN=ZeroDrop-Reader/O=ZeroDrop/C=ID" && \
+    chmod 600 /etc/nginx/ssl/self-signed.key
 
 # Nginx config that maps /static/* to root (reader.html uses src="/static/jsqr.min.js")
 COPY deploy/nginx.reader.conf /etc/nginx/nginx.conf
@@ -11,6 +23,6 @@ COPY deploy/nginx.reader.conf /etc/nginx/nginx.conf
 # Copy static files (reader.html + jsqr.min.js)
 COPY static/ /usr/share/nginx/html/
 
-EXPOSE 80
+EXPOSE 80 443
 
 CMD ["nginx", "-g", "daemon off;"]

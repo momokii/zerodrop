@@ -162,12 +162,12 @@ docker-reader-build:
 
 docker-reader-up:
 	@echo "→ Starting reader container on http://localhost:8081..."
-	docker-compose -f docker-compose.reader.yml up -d
+	$(DOCKER_COMPOSE) -f docker-compose.reader.yml up -d
 	@echo "✓ Reader running at http://localhost:8081/reader.html"
 
 docker-reader-down:
 	@echo "→ Stopping reader container..."
-	docker-compose -f docker-compose.reader.yml down
+	$(DOCKER_COMPOSE) -f docker-compose.reader.yml down
 	@echo "✓ Reader stopped"
 
 # =============================================================================
@@ -258,7 +258,7 @@ check-deps:
 	@echo "→ Checking dependencies..."
 	@which $(GO_CMD) > /dev/null || (echo "✗ Go not installed" && exit 1)
 	@which npm > /dev/null || (echo "✗ npm not installed" && exit 1)
-	@which $(DOCKER_COMPOSE) > /dev/null || (echo "✗ docker-compose not installed" && exit 1)
+	@docker compose version > /dev/null 2>&1 || (echo "✗ docker compose not installed (need Docker with compose plugin)" && exit 1)
 	@echo "✓ All dependencies satisfied"
 
 format:

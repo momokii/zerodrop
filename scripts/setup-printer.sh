@@ -631,31 +631,9 @@ else
   update_env_var "PRINTER_DEVICE" ""
 fi
 
-# For raw USB mode, detect and write the raw device path
-# (e.g., /dev/bus/usb/001/090) so docker-compose can map it
-if [ "$RAW_USB_MODE" = true ] && [ -n "$DETECTED_VID" ] && [ -n "$DETECTED_PID" ]; then
-  RAW_DEVICE_PATH=""
-  for dev_dir in /sys/bus/usb/devices/*/; do
-    [ -f "$dev_dir/idVendor" ] || continue
-    vid=$(cat "$dev_dir/idVendor" 2>/dev/null | tr -d '[:space:]')
-    pid=$(cat "$dev_dir/idProduct" 2>/dev/null | tr -d '[:space:]')
-    [ "$vid" = "$DETECTED_VID" ] && [ "$pid" = "$DETECTED_PID" ] || continue
-    bus=$(cat "$dev_dir/busnum" 2>/dev/null | tr -d '[:space:]')
-    dev=$(cat "$dev_dir/devnum" 2>/dev/null | tr -d '[:space:]')
-    if [ -n "$bus" ] && [ -n "$dev" ]; then
-      RAW_DEVICE_PATH="/dev/bus/usb/$(printf '%03d' "$bus")/$(printf '%03d' "$dev")"
-      break
-    fi
-  done
-  if [ -n "$RAW_DEVICE_PATH" ]; then
-    update_env_var "USB_RAW_DEVICE" "$RAW_DEVICE_PATH"
-  fi
-else
-  # Clear USB_RAW_DEVICE if not in raw USB mode
-  if grep -qs '^USB_RAW_DEVICE=' "$ENV_FILE" 2>/dev/null; then
-    update_env_var "USB_RAW_DEVICE" ""
-  fi
-fi
+# Note: Raw USB device path is no longer written to .env — the app
+# auto-detects USB printers at runtime via bus scan (see pkg/printer/rawusb.go).
+# Docker Compose mounts /dev/bus/usb dynamically so no static path needed.
 
 if [ "$ENV_CHANGED" = false ]; then
   log_ok "Printer variables already configured correctly in $(basename "$ENV_FILE")"
@@ -700,9 +678,7 @@ echo "  .env config:   $ENV_STATUS"
 echo "  Device node:   $([ -n "$DETECTED_DEVICE" ] && echo "$DETECTED_DEVICE" || echo "none found")"
 echo "  Write access:  $([ -n "$DETECTED_DEVICE" ] && [ -w "$DETECTED_DEVICE" ] && echo "✅ yes" || ([ "$RAW_USB_MODE" = true ] && echo "N/A (raw USB)"))"
 echo "  USB mode:      $([ "$RAW_USB_MODE" = true ] && echo "direct bulk (no usblp)" || echo "usblp driver")"
-if [ "$RAW_USB_MODE" = true ] && [ -n "$RAW_DEVICE_PATH" ]; then
-  echo "  Raw USB path:  $RAW_DEVICE_PATH"
-fi
+# Raw USB device path is auto-detected by the app at runtime — no config needed
 echo ""
 
 if [ "$NEEDS_RELOGIN" = true ]; then

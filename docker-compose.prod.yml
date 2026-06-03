@@ -8,7 +8,7 @@ services:
     environment:
       - PRINTER_TYPE=${PRINTER_TYPE:-usb}
       - PRINTER_DEVICE=${PRINTER_DEVICE:-}
-      - LOG_ENABLED=false
+      - LOG_ENABLED=${LOG_ENABLED:-false}
     # USB printer access — handles both initial detection and re-enumeration:
     #   - device_cgroup_rules: grants kernel-level access to ALL USB devices (major 189)
     #     so re-enumerated devices (new devnum) are accessible without restart

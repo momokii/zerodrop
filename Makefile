@@ -150,10 +150,10 @@ docker-clean:
 .PHONY: serve-reader docker-reader-build docker-reader-up docker-reader-down
 
 serve-reader:
-	@echo "→ Starting reader.html on http://localhost:8081..."
+	@echo "→ Starting ZeroDrop Reader on http://localhost:8081..."
 	@echo "  Open http://localhost:8081/reader.html in your browser"
 	@echo "  Press Ctrl+C to stop"
-	@cd static && python3 -m http.server 8081
+	python3 -m http.server 8081 --directory .
 
 docker-reader-build:
 	@echo "→ Building standalone reader Docker image..."

@@ -5,6 +5,9 @@
 
 FROM nginx:alpine
 
+# Nginx config that maps /static/* to root (reader.html uses src="/static/jsqr.min.js")
+COPY deploy/nginx.reader.conf /etc/nginx/nginx.conf
+
 # Copy static files (reader.html + jsqr.min.js)
 COPY static/ /usr/share/nginx/html/
 

@@ -224,10 +224,14 @@ zerodrop/
 │   │   ├── TASK_QUEUE.md        # Implementation backlog
 │   │   └── DECISIONS_LOG.md     # Architecture decision records
 │   └── templates/               # Implementation checklists
-├── Dockerfile                   # Multi-stage Alpine Docker build
+├── deploy/
+│   └── nginx.reader.conf        # nginx config for standalone reader container
+├── Dockerfile                   # Multi-stage Alpine Docker build (full backend)
+├── Dockerfile.reader            # Standalone nginx image for reader.html only
 ├── docker-compose.yml           # Base Docker Compose configuration
 ├── docker-compose.prod.yml      # Production Docker Compose overrides
 ├── docker-compose.override.yml  # Development Docker Compose overrides
+├── docker-compose.reader.yml    # Standalone reader-only Docker Compose
 ├── Makefile                     # Development automation (build, test, deploy, ops)
 ├── Makefile.deploy              # Production deployment Makefile
 ├── go.mod                       # Go module definition
@@ -325,6 +329,27 @@ make docker-down        # Stop services
 make docker-restart     # Restart services (no rebuild)
 make docker-restart-rebuild # Restart services with rebuild
 ```
+
+### Standalone Reader
+
+Deploy just the offline decryption tool (`reader.html` + jsQR) as a lightweight nginx container — no Go backend needed. Ideal for dedicated reader machines or air-gapped environments.
+
+```bash
+# Build and start reader container (port 8081)
+make docker-reader-build  # Build nginx image
+make docker-reader-up     # Start container
+
+# Open in browser:
+#   http://localhost:8081/reader.html
+
+# Stop reader
+make docker-reader-down
+
+# Or serve locally without Docker:
+make serve-reader
+```
+
+The standalone reader contains no API, no printer, no crypto keys — just a static file server. Copy `static/reader.html` + `static/jsqr.min.js` to a USB stick for fully offline use.
 
 ---
 
@@ -795,6 +820,19 @@ The `static/reader.html` file is a standalone, fully offline decryption tool:
 3. Paste the private key (logged as QR code during server startup, or copy from operator console output)
 4. Click "Decrypt" to reveal the plaintext message
 
+**Standalone deployment** — Deploy just the reader on a separate machine without the full backend:
+
+```bash
+# Docker (recommended for production):
+make docker-reader-up         # Start on http://localhost:8081
+make docker-reader-down       # Stop
+
+# Local development (Python HTTP server):
+make serve-reader             # Start on http://localhost:8081
+```
+
+The reader runs as a minimal nginx container (`Dockerfile.reader`) serving only `reader.html` and `jsqr.min.js`. No Go backend, no database, no printer — just a lightweight HTTP server for offline QR decryption.
+
 **Payload format:** `ZD1:base64(ephemeralPubKey(32) + iv(12) + aesCiphertextWithTag)` — the ephemeral public key enables stateless decryption without any server involvement.
 
 ---
@@ -831,6 +869,10 @@ The main `Makefile` provides comprehensive development automation:
 | | `docker-restart` | Restart services (no rebuild) |
 | | `docker-restart-rebuild` | Restart services with rebuild |
 | | `docker-clean` | Remove Docker resources |
+| **Reader** | `serve-reader` | Serve reader.html locally via HTTP on port 8081 |
+| | `docker-reader-build` | Build standalone reader Docker image |
+| | `docker-reader-up` | Start reader container on port 8081 |
+| | `docker-reader-down` | Stop reader container |
 | **Quality** | `check` | Run all checks (deps, tests) |
 | | `check-deps` | Verify Go and Node are installed |
 | | `format` | Run `go fmt` |

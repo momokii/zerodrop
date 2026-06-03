@@ -262,7 +262,7 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <script src="jsqr.min.js"></script>
+    <script src="/static/jsqr.min.js"></script>
     <script type="module">
         const video = document.getElementById('video');
         const privateKeyInput = document.getElementById('privateKey');
@@ -276,11 +276,16 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
         let lastPublicKeyData = null; // cached for fallback fingerprint calc
         let qrCodeData = '';
         let payloadSource = 'camera'; // 'camera' or 'manual'
+        let qrDetected = false; // true once QR is captured — stops scan loop
 
         async function initCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment' }
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 640, max: 640 },
+                        height: { ideal: 480, max: 480 }
+                    }
                 });
                 video.srcObject = stream;
                 showStatus('Scanning...', 'scanning');
@@ -293,25 +298,59 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
         function startQRScan() {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
+            // Scan at a fixed resolution for reliability — full camera frame
+            // (1080p+) makes jsQR slow and less accurate.
+            const SCAN_WIDTH = 640;
+            const SCAN_HEIGHT = 480;
+            // Throttle: only run jsQR every Nth frame to reduce CPU.
+            // At 60fps with FRAME_SKIP=4 we scan ~15 fps — plenty for QR.
+            const FRAME_SKIP = 4;
+            let scanCount = 0;
+            let lastFeedbackTime = 0;
 
             function scan() {
+                // Stop scan loop entirely once a QR is successfully captured
+                // — prevents re-detection spam and saves battery/CPU
+                if (qrDetected) return;
+
                 if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0 && video.videoHeight > 0) {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    scanCount++;
+
+                    // Give positional feedback every ~5 seconds
+                    const now = Date.now();
+                    if (now - lastFeedbackTime > 5000) {
+                        lastFeedbackTime = now;
+                        showStatus('Scanning... Hold QR code steady in the frame.', 'scanning');
+                    }
+
+                    // Skip most frames — jsQR is expensive on 640×480
+                    if (scanCount % FRAME_SKIP !== 0) {
+                        requestAnimationFrame(scan);
+                        return;
+                    }
+
+                    canvas.width = SCAN_WIDTH;
+                    canvas.height = SCAN_HEIGHT;
+                    ctx.drawImage(video, 0, 0, SCAN_WIDTH, SCAN_HEIGHT);
 
                     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                     const code = jsQR(imageData.data, imageData.width, imageData.height);
 
-                    if (code && code.data && code.data.startsWith('ZD1:')) {
-                        // Don't overwrite when user has manually pasted a payload
-                        if (!(payloadSource === 'manual' && payloadInput.value.trim().startsWith('ZD1:'))) {
-                            qrCodeData = code.data;
-                            payloadSource = 'camera';
-                            payloadInput.value = ''; // clear manual input
-                            clearResult();
-                            showStatus('QR scanned! Ready to decrypt.', 'scanning');
-                            decryptBtn.disabled = !privateKey;
+                    if (code && code.data) {
+                        if (code.data.startsWith('ZD1:')) {
+                            // Don't overwrite when user has manually pasted a payload
+                            if (!(payloadSource === 'manual' && payloadInput.value.trim().startsWith('ZD1:'))) {
+                                qrCodeData = code.data;
+                                payloadSource = 'camera';
+                                // Fill the textarea so the user sees the captured data
+                                payloadInput.value = code.data;
+                                clearResult();
+                                showStatus('QR scanned! Paste your private key below and click Decrypt.', 'scanning');
+                                decryptBtn.disabled = !privateKey;
+                                // Stop scan loop — single capture, no spam
+                                qrDetected = true;
+                                return;
+                            }
                         }
                     }
                 }
@@ -387,10 +426,8 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                 fingerprintSpan.textContent = 'Hashing fingerprint...';
                 const fingerprint = await calculateFingerprint(publicKeyData);
                 fingerprintSpan.textContent = fingerprint || 'ERROR';
-                console.log('Fingerprint result:', fingerprint);
             } catch (err) {
                 fingerprintSpan.textContent = 'Unavailable';
-                console.warn('Fingerprint failed:', err.message || err);
             }
         }
 
@@ -482,12 +519,17 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                 clearResult();
                 showStatus('Payload pasted. Ready to decrypt.', 'scanning');
                 decryptBtn.disabled = !privateKey;
-            } else if (!val && payloadSource === 'manual') {
+            } else if (!val) {
                 qrCodeData = '';
-                payloadSource = 'camera';
                 decryptBtn.disabled = true;
                 clearResult();
-                showStatus('Payload cleared. Paste a ZD1: payload or scan a QR.', 'scanning');
+                if (qrDetected) {
+                    // Scan loop is dead — user cleared the scanned data
+                    showStatus('Payload cleared. Refresh the page to scan again, or paste a ZD1: payload.', 'scanning');
+                } else {
+                    payloadSource = 'camera';
+                    showStatus('Payload cleared. Paste a ZD1: payload.', 'scanning');
+                }
             }
         }
         payloadInput.addEventListener('input', payloadChanged);
@@ -496,17 +538,14 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
         });
 
         async function loadPrivateKey(val) {
-            console.log('[DEBUG] loadPrivateKey called, val length:', val.length);
             try {
                 const publicKeyData = await extractPublicKey(val);
                 lastPublicKeyData = publicKeyData;
-                console.log('[DEBUG] extractPublicKey succeeded, publicKeyData:', publicKeyData ? publicKeyData.byteLength + ' bytes' : 'null');
                 decryptBtn.disabled = !qrCodeData;
                 const src = payloadSource === 'camera' ? 'QR scanned' : 'payload pasted';
                 showStatus('Private key loaded. ' + src + '. Ready to decrypt.', 'scanning');
                 updateFingerprint(publicKeyData);
             } catch (err) {
-                console.error('[DEBUG] loadPrivateKey error:', err.message || err.name);
                 const errName = err.name || err.message || 'Unknown error';
                 if (err.name === 'OperationError') {
                     showStatus(errName + ' — Make sure you copied the entire JWK correctly.', 'error');
@@ -527,7 +566,6 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                 showStatus('PEM key loaded. Ready to decrypt.', 'scanning');
                 updateFingerprint(publicKeyData);
             } catch (err) {
-                console.warn('PEM import failed (non-blocking):', err.message || err.name);
                 if (!privateKey) {
                     const errName = err.name || err.message || 'Unknown error';
                     if (err.name === 'OperationError') {
@@ -608,7 +646,6 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
 
         async function tryUpdateFingerprintFallback() {
             if (lastPublicKeyData && fingerprintSpan.textContent === 'Calculating...') {
-                console.log('[DEBUG] decrypt fallback: calculating fingerprint');
                 await updateFingerprint(lastPublicKeyData);
             }
         }

@@ -279,6 +279,17 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
         let qrDetected = false; // true once QR is captured — stops scan loop
 
         async function initCamera() {
+            // Check for secure context — camera access requires HTTPS (or localhost).
+            // navigator.mediaDevices is undefined over HTTP from non-localhost origins.
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                const isHTTPS = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                showStatus(
+                    'Camera unavailable' + (isHTTPS ? '' : ' — page must be served over HTTPS (or localhost) for camera access') +
+                    '. Paste the ZD1: payload manually below.',
+                    'error'
+                );
+                return;
+            }
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: {
@@ -291,7 +302,10 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                 showStatus('Scanning...', 'scanning');
                 startQRScan();
             } catch (err) {
-                showStatus('Camera access denied: ' + (err.message || err.name) + ' — You can paste the ZD1: payload manually below.', 'error');
+                const reason = err.name === 'NotAllowedError' ? 'Camera permission denied by user' :
+                               err.name === 'NotFoundError' ? 'No camera found on this device' :
+                               (err.message || err.name);
+                showStatus('Camera access denied: ' + reason + ' — You can paste the ZD1: payload manually below.', 'error');
             }
         }
 

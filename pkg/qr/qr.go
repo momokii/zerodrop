@@ -4,6 +4,7 @@ package qr
 import (
 	"encoding/base64"
 	"fmt"
+	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
 )
@@ -39,49 +40,64 @@ func GenerateQRESCPOS(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("QR bitmap is empty")
 	}
 
-	// bytesPerRow = number of bytes needed to represent 'size' horizontal dots
-	bytesPerRow := (size + 7) / 8
+	// Scale factor: 4x increases QR from ~4.6mm to ~19mm for easy scanning
+	const scale = 4
+	scaledSize := size * scale
+
+	// bytesPerRow for the scaled bitmap
+	bytesPerRow := (scaledSize + 7) / 8
 
 	// Build ESC/POS command sequence
 	var escpos []byte
 
-	// 1. Initialize printer
+	// 1. Initialize printer (twice to handle residual buffer on cheap printers)
+	escpos = append(escpos, 0x1B, 0x40)
 	escpos = append(escpos, 0x1B, 0x40)
 
 	// 2. Set alignment to center
 	escpos = append(escpos, 0x1B, 0x61, 0x01)
 
-	// 3. Print header text
-	header := "\nZERO DROP ENCRYPTED PAYLOAD\n\n"
+	// 3. Print header text with UTC timestamp
+	header := fmt.Sprintf("\nZERO DROP ENCRYPTED PAYLOAD\nPrinted: %s UTC\n\n",
+		time.Now().UTC().Format("2006-01-02 15:04:05"))
 	escpos = append(escpos, []byte(header)...)
 
-	// 4. GS v 0 raster bit-image command
-	// GS v 0 m=0 xL xH yL yH [data]
-	gsCmd := []byte{0x1D, 0x76, 0x30, 0x00} // GS v 0, m=0 (normal density)
-	// xL, xH = width in bytes (little-endian)
-	gsCmd = append(gsCmd, byte(bytesPerRow&0xFF), byte((bytesPerRow>>8)&0xFF))
-	// yL, yH = height in dots (little-endian)
-	gsCmd = append(gsCmd, byte(size&0xFF), byte((size>>8)&0xFF))
+	// 4. NUL padding to absorb buffer overflow from large GS v 0 raster
+	for i := 0; i < 512; i++ {
+		escpos = append(escpos, 0x00)
+	}
 
-	// Build image data: row-by-row, each byte encodes 8 horizontal pixels
-	// MSB (bit 7) = leftmost pixel in that group of 8
-	for y := 0; y < size; y++ {
-		for xb := 0; xb < bytesPerRow; xb++ {
-			var imgByte byte
-			for bit := 0; bit < 8; bit++ {
-				xPos := xb*8 + bit
-				if xPos < size && bitmap[y][xPos] {
-					imgByte |= 1 << (7 - bit) // MSB = leftmost pixel
+	// 5. Flush text buffer by re-sending alignment before raster data
+	escpos = append(escpos, 0x1B, 0x61, 0x01) // ESC a 1 (center)
+
+	// 6. GS v 0 raster bit-image command (normal density)
+	gsCmd := []byte{0x1D, 0x76, 0x30, 0x00} // GS v 0, m=0 (normal density)
+	gsCmd = append(gsCmd, byte(bytesPerRow&0xFF), byte((bytesPerRow>>8)&0xFF))
+	gsCmd = append(gsCmd, byte(scaledSize&0xFF), byte((scaledSize>>8)&0xFF))
+
+	// Build image data: each source pixel becomes a 3x3 block
+	for sy := 0; sy < size; sy++ {
+		for ry := 0; ry < scale; ry++ {
+			for xb := 0; xb < bytesPerRow; xb++ {
+				var imgByte byte
+				for bit := 0; bit < 8; bit++ {
+					xPos := xb*8 + bit
+					if xPos < scaledSize {
+						sx := xPos / scale
+						if sx < size && bitmap[sy][sx] {
+							imgByte |= 1 << (7 - bit)
+						}
+					}
 				}
+				gsCmd = append(gsCmd, imgByte)
 			}
-			gsCmd = append(gsCmd, imgByte)
 		}
 	}
 	escpos = append(escpos, gsCmd...)
 
-	// 5. Print ciphertext as readable text below QR (fallback)
+	// 7. Print ciphertext below QR
 	escpos = append(escpos, []byte("\n\n--- CIPHERTEXT ---\n")...)
-	payload := string(data)
+	payload := qrContent
 	for i := 0; i < len(payload); i += 48 {
 		end := i + 48
 		if end > len(payload) {
@@ -90,7 +106,7 @@ func GenerateQRESCPOS(data []byte) ([]byte, error) {
 		escpos = append(escpos, []byte(payload[i:end]+"\n")...)
 	}
 
-	// 6. Feed 5 lines and partial cut
+	// 8. Feed 5 lines and partial cut
 	escpos = append(escpos, 0x1B, 0x64, 0x05)       // Feed 5 lines
 	escpos = append(escpos, 0x1D, 0x56, 0x42, 0x00) // Partial cut
 

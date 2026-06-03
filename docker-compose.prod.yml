@@ -10,12 +10,13 @@ services:
       - PRINTER_DEVICE=${PRINTER_DEVICE:-}
       - LOG_ENABLED=false
     # USB printer access — handles both initial detection and re-enumeration:
-    #   - devices: maps the USB device node at container start (set by setup-printer.sh)
     #   - device_cgroup_rules: grants kernel-level access to ALL USB devices (major 189)
     #     so re-enumerated devices (new devnum) are accessible without restart
-    #   - /sys/bus/usb read-only mount enables sysfs scanning for raw USB detection
-    devices:
-      - "${USB_RAW_DEVICE:-/dev/null}:${USB_RAW_DEVICE:-/dev/null}"
+    #   - /dev/bus/usb rshared mount: makes the entire USB bus visible inside container
+    #   - /sys/bus/usb read-only mount: enables sysfs scanning for raw USB detection
+    #   Note: No explicit devices: entry — the bind mount + cgroup rules cover all USB
+    #     devices dynamically. This also means the container starts fine even when the
+    #     printer is not connected (the app gracefully falls back to Mock Printer).
     device_cgroup_rules:
       - 'c 189:* rw'
     volumes:

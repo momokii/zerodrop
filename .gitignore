@@ -46,11 +46,12 @@ tmp/
 temp/
 *.tmp
 
-# Keys (generated at runtime)
+# Keys (generated at runtime — NEVER commit)
 *_key.pem
 public_key.pem
 private_key.pem
 private_key_qr.png
+private_key_jwk_qr.png
 
 # Node modules (for frontend in M-05)
 node_modules/

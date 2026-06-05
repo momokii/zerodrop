@@ -50,7 +50,7 @@ func TestLogPrivateKeyAsQR(t *testing.T) {
 	}
 
 	// This should not panic, just log (pass false for logEnabled in tests)
-	err = LogPrivateKeyAsQR(keyPair.PrivateKey, false)
+	err = LogPrivateKeyAsQR(keyPair.PrivateKey, t.TempDir(), false)
 	if err != nil {
 		t.Fatalf("LogPrivateKeyAsQR failed: %v", err)
 	}

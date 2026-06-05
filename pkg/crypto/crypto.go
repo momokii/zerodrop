@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -66,12 +67,14 @@ func SavePublicKeyToFile(publicKey *ecdh.PublicKey, filepath string) error {
 }
 
 // LogPrivateKeyAsQR logs the private key as a scannable QR code to stdout
-// and as plain PEM text. The key is exported in PKCS#8 DER format so it can be
-// imported by reader.html via crypto.subtle.importKey("pkcs8", ...).
+// and saves a PNG file for reliable phone scanning. The key is exported in
+// PKCS#8 DER format so it can be imported by reader.html via
+// crypto.subtle.importKey("pkcs8", ...).
 //
 // All output goes to stdout as a single write to prevent Docker from
-// interleaving it with stderr log lines (which would break QR scannability).
-func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey, logEnabled bool) error {
+// interleaving it with stderr log lines.
+// saveDir is the directory where the PNG QR will be saved (alongside the public key).
+func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey, saveDir string, logEnabled bool) error {
 	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
 	if err != nil {
 		return fmt.Errorf("failed to marshal private key to PKCS#8: %w", err)
@@ -81,17 +84,41 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey, logEnabled bool) error {
 		Bytes: pkcs8Bytes,
 	})
 
+	// Save PNG QR to file — this is the primary scannable target since
+	// ASCII art QR in terminal/Docker logs is distorted by font aspect ratios.
+	pngPath := filepath.Join(saveDir, "private_key_qr.png")
+	pngData, pngErr := qr.GenerateRawQRPNG(privateKeyPEM)
+	if pngErr == nil {
+		if writeErr := os.WriteFile(pngPath, pngData, 0600); writeErr != nil {
+			log.Printf("WARNING: Could not save private key QR PNG: %v", writeErr)
+			pngPath = ""
+		}
+	} else {
+		log.Printf("WARNING: Could not generate private key QR PNG: %v", pngErr)
+		pngPath = ""
+	}
+
 	// Build the ENTIRE output in one buffer so it hits stdout as a single write.
-	// This prevents Docker from interleaving stderr log lines into the QR art.
 	var buf strings.Builder
 
 	buf.WriteString("\n")
-	buf.WriteString("╔══════════════════════════════════════════════════╗\n")
-	buf.WriteString("║           PRIVATE KEY — SCAN THIS QR            ║\n")
-	buf.WriteString("║     Save securely. Key is destroyed after       ║\n")
-	buf.WriteString("║     this message. This is your ONLY chance.     ║\n")
-	buf.WriteString("╚══════════════════════════════════════════════════╝\n")
+	buf.WriteString("╔════════════════════════════════════════════════════════════════╗\n")
+	buf.WriteString("║              PRIVATE KEY — SAVE SECURELY                     ║\n")
+	if pngPath != "" {
+		buf.WriteString("║  Scan the PNG file below with your phone.                     ║\n")
+		buf.WriteString("║  DELETE the file after scanning — key is destroyed from RAM.  ║\n")
+	} else {
+		buf.WriteString("║  Scan the QR below or use the text key (if LOG_ENABLED).      ║\n")
+	}
+	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\n")
 	buf.WriteString("\n")
+
+	if pngPath != "" {
+		// Docker path maps data/ → ./data on host, show the host-relative path
+		buf.WriteString(fmt.Sprintf("  Scannable QR PNG: data/private_key_qr.png\n"))
+		buf.WriteString(fmt.Sprintf("  (host path: ./data/private_key_qr.png)\n"))
+		buf.WriteString("\n")
+	}
 
 	asciiArt, asciiErr := qr.GenerateQRASCII(string(privateKeyPEM))
 	if asciiErr == nil {
@@ -101,7 +128,6 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey, logEnabled bool) error {
 
 	// JWK and PEM plaintext only when structured logging is enabled
 	if logEnabled {
-		// JWK format (RFC 8037) - more portable across browsers
 		privRaw := privateKey.Bytes()
 		pubRaw := privateKey.PublicKey().Bytes()
 		jwk := map[string]string{
@@ -120,9 +146,9 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey, logEnabled bool) error {
 		buf.WriteString("\n=== END PRIVATE KEY PEM ===\n\n")
 	}
 
-	buf.WriteString("╔══════════════════════════════════════════════════╗\n")
-	buf.WriteString("║              END OF PRIVATE KEY                 ║\n")
-	buf.WriteString("╚══════════════════════════════════════════════════╝\n")
+	buf.WriteString("╔════════════════════════════════════════════════════════════════╗\n")
+	buf.WriteString("║              END OF PRIVATE KEY                               ║\n")
+	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\n")
 	buf.WriteString("\n")
 
 	os.Stdout.WriteString(buf.String())
@@ -193,8 +219,11 @@ func InitializeOrLoadKeyPair(publicKeyPath string, logEnabled bool) (*KeyPair, e
 		return nil, fmt.Errorf("failed to save public key: %w", err)
 	}
 
-	// Log private key as QR (writes entire block to stdout atomically)
-	err = LogPrivateKeyAsQR(keyPair.PrivateKey, logEnabled)
+	// Determine directory for saving private key QR PNG (same dir as public key)
+	dataDir := filepath.Dir(publicKeyPath)
+
+	// Log private key as QR + save PNG (writes entire block to stdout atomically)
+	err = LogPrivateKeyAsQR(keyPair.PrivateKey, dataDir, logEnabled)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log private key QR: %w", err)
 	}

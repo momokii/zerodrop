@@ -16,6 +16,8 @@ services:
       - PRINTER_TYPE=${PRINTER_TYPE:-mock}
       - PRINTER_DEVICE=${PRINTER_DEVICE:-}
       - PUBLIC_KEY_PATH=/app/data/public_key.pem
+      - RATE_LIMIT_REQUESTS_PER_HOUR=${RATE_LIMIT_REQUESTS_PER_HOUR:-5}
+      - RATE_LIMIT_BURST=${RATE_LIMIT_BURST:-1}
       - LOG_ENABLED=${LOG_ENABLED:-false}
       - TLS_ENABLED=${TLS_ENABLED:-false}
     volumes:

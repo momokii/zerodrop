@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -75,8 +76,9 @@ func main() {
 		"printer_type": cfg.PrinterType,
 	})
 
-	// Initialize or load key pair
-	log.Println("\n=== Key Provisioning ===")
+	// Initialize or load key pair — header goes to stdout so it groups
+	// with the QR code output (prevents Docker stderr/stdout interleaving)
+	fmt.Fprintln(os.Stdout, "\n=== Key Provisioning ===")
 	keyPair, err := crypto.InitializeOrLoadKeyPair(cfg.PublicKeyPath, cfg.LogEnabled)
 	if err != nil {
 		log.Fatalf("Failed to initialize key pair: %v", err)

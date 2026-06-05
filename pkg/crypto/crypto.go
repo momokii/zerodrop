@@ -68,6 +68,9 @@ func SavePublicKeyToFile(publicKey *ecdh.PublicKey, filepath string) error {
 // LogPrivateKeyAsQR logs the private key as a scannable QR code to stdout
 // and as plain PEM text. The key is exported in PKCS#8 DER format so it can be
 // imported by reader.html via crypto.subtle.importKey("pkcs8", ...).
+//
+// All output goes to stdout as a single write to prevent Docker from
+// interleaving it with stderr log lines (which would break QR scannability).
 func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey, logEnabled bool) error {
 	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
 	if err != nil {
@@ -78,19 +81,25 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey, logEnabled bool) error {
 		Bytes: pkcs8Bytes,
 	})
 
-	// Build a single output buffer to avoid interleaving between stdout/stderr
+	// Build the ENTIRE output in one buffer so it hits stdout as a single write.
+	// This prevents Docker from interleaving stderr log lines into the QR art.
 	var buf strings.Builder
+
+	buf.WriteString("\n")
+	buf.WriteString("╔══════════════════════════════════════════════════╗\n")
+	buf.WriteString("║           PRIVATE KEY — SCAN THIS QR            ║\n")
+	buf.WriteString("║     Save securely. Key is destroyed after       ║\n")
+	buf.WriteString("║     this message. This is your ONLY chance.     ║\n")
+	buf.WriteString("╚══════════════════════════════════════════════════╝\n")
+	buf.WriteString("\n")
+
 	asciiArt, asciiErr := qr.GenerateQRASCII(string(privateKeyPEM))
 	if asciiErr == nil {
-		buf.WriteString("\n")
 		buf.WriteString(asciiArt)
 		buf.WriteString("\n")
 	}
 
 	// JWK and PEM plaintext only when structured logging is enabled
-	// The QR code (above) is always shown — it is the primary delivery mechanism.
-	// Plaintext key material adds convenience for copy-paste but should not appear
-	// in logs when the operator has not explicitly opted into verbose output.
 	if logEnabled {
 		// JWK format (RFC 8037) - more portable across browsers
 		privRaw := privateKey.Bytes()
@@ -103,13 +112,19 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey, logEnabled bool) error {
 		}
 		jwkJSON, _ := json.Marshal(jwk)
 
-		buf.WriteString("=== PRIVATE KEY (JWK) - Recommended for reader.html ===\n")
+		buf.WriteString("\n=== PRIVATE KEY (JWK) - Recommended for reader.html ===\n")
 		buf.Write(jwkJSON)
 		buf.WriteString("\n=== END PRIVATE KEY JWK ===\n\n")
 		buf.WriteString("=== PRIVATE KEY (PEM) - Alternative format ===\n")
 		buf.Write(privateKeyPEM)
 		buf.WriteString("\n=== END PRIVATE KEY PEM ===\n\n")
 	}
+
+	buf.WriteString("╔══════════════════════════════════════════════════╗\n")
+	buf.WriteString("║              END OF PRIVATE KEY                 ║\n")
+	buf.WriteString("╚══════════════════════════════════════════════════╝\n")
+	buf.WriteString("\n")
+
 	os.Stdout.WriteString(buf.String())
 
 	return nil
@@ -154,7 +169,9 @@ func GetPublicKeyFingerprint(publicKey *ecdh.PublicKey) (string, error) {
 }
 
 // InitializeOrLoadKeyPair tries to load an existing public key,
-// or generates a new key pair if none exists
+// or generates a new key pair if none exists.
+// All operator-facing output (QR, fingerprint, instructions) is written to
+// stdout to prevent Docker from interleaving stderr log lines.
 func InitializeOrLoadKeyPair(publicKeyPath string, logEnabled bool) (*KeyPair, error) {
 	// Check if public key already exists
 	if _, err := os.Stat(publicKeyPath); err == nil {
@@ -176,22 +193,25 @@ func InitializeOrLoadKeyPair(publicKeyPath string, logEnabled bool) (*KeyPair, e
 		return nil, fmt.Errorf("failed to save public key: %w", err)
 	}
 
-	// Log private key as QR
+	// Log private key as QR (writes entire block to stdout atomically)
 	err = LogPrivateKeyAsQR(keyPair.PrivateKey, logEnabled)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log private key QR: %w", err)
 	}
 
-	// Get and log fingerprint
+	// Get fingerprint
 	fingerprint, err := GetPublicKeyFingerprint(keyPair.PublicKey)
+	fingerprintStr := "unavailable"
 	if err != nil {
 		log.Printf("WARNING: Could not generate public key fingerprint: %v", err)
 	} else {
-		log.Printf("PUBLIC_KEY_FINGERPRINT: %s", fingerprint)
+		fingerprintStr = fingerprint
 	}
 
-	log.Println("Key pair generated. IMPORTANT: Scan the PRIVATE_KEY_QR above and save it securely.")
-	log.Println("The private key will be destroyed from this server after this message.")
+	// Post-QR instructions — also go to stdout so they stay grouped with the QR
+	fmt.Fprintf(os.Stdout, "PUBLIC_KEY_FINGERPRINT: %s\n", fingerprintStr)
+	fmt.Fprintln(os.Stdout, "Key pair generated. IMPORTANT: Scan the QR above and save it securely.")
+	fmt.Fprintln(os.Stdout, "The private key will be destroyed from this server after this message.")
 
 	return keyPair, nil
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -39,6 +38,12 @@ func findProjectRoot() string {
 }
 
 func main() {
+	// Route all log.* output to stdout. Go's default log writes to stderr,
+	// but Docker merges stdout and stderr with no ordering guarantee —
+	// this causes log lines to interleave with the QR ASCII art output.
+	// Single stream = guaranteed ordering.
+	log.SetOutput(os.Stdout)
+
 	log.Println("ZeroDrop Terminal v1.0 Starting...")
 
 	if root := findProjectRoot(); root != "." {
@@ -76,9 +81,8 @@ func main() {
 		"printer_type": cfg.PrinterType,
 	})
 
-	// Initialize or load key pair — header goes to stdout so it groups
-	// with the QR code output (prevents Docker stderr/stdout interleaving)
-	fmt.Fprintln(os.Stdout, "\n=== Key Provisioning ===")
+	// Initialize or load key pair
+	log.Println("\n=== Key Provisioning ===")
 	keyPair, err := crypto.InitializeOrLoadKeyPair(cfg.PublicKeyPath, cfg.LogEnabled)
 	if err != nil {
 		log.Fatalf("Failed to initialize key pair: %v", err)

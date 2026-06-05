@@ -1,6 +1,6 @@
 ## Project Phase
 
-Implementation — **M-05 Complete** — ZeroDrop Terminal v1.0 Ready for Production
+Implementation — **v1.0 Complete, v1.1 Planning Complete** — Admin Dashboard & Key Persistence
 
 ---
 
@@ -14,18 +14,22 @@ Implementation — **M-05 Complete** — ZeroDrop Terminal v1.0 Ready for Produc
 - [x] M-03: Printer Interface & Reader
 - [x] M-04: USB Printer & Health Check
 - [x] M-05: Frontend & Production Readiness
+- [x] v1.1 Implementation Plan written (`docs/plans/v1.1-admin-dashboard.md`)
 
 ---
 
 ## In Progress
 
-- None — All milestones complete!
+- **v1.1 Implementation** — Ready to start on `feature/v1.1-admin-dashboard` branch
+  - Plan document complete: `docs/plans/v1.1-admin-dashboard.md`
+  - 7 tasks defined with exact code, file paths, and architecture decisions
+  - Branch needs to be created from main
 
 ---
 
 ## Blocked
 
-- None — All resolved!
+- None
 
 ---
 
@@ -334,3 +338,48 @@ Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go ser
 2026-05-18 — **Deployment Makefile Complete**: Created `Makefile.deploy` with 30+ production operations targets. Includes deploy (binary/Docker), build, run/stop, health/status, backup/restore, security checks, system setup (systemd/udev/firewall), and rollback operations. Documented in DECISIONS_LOG.md and TASK_QUEUE.md.
 
 2026-05-12 — **M-05 COMPLETE**: ZeroDrop Terminal v1.0 ready for production deployment. All 5 milestones implemented. Frontend (React + Vite + shadcn/ui) complete with Web Crypto API integration. Backend serves SPA with fallback handler. Production builds verified.
+
+---
+
+## v1.1 Plan — Admin Dashboard & Key Persistence (2026-06-04)
+
+### Plan Document
+
+`docs/plans/v1.1-admin-dashboard.md` — 7 tasks with exact Go/TypeScript code, file paths, architecture decisions.
+
+### Branch Strategy
+
+- v1.1 implementation on `feature/v1.1-admin-dashboard` branch
+- v1.0 `main` branch is stable — no changes needed
+- Merge feature branch to main when v1.1 is complete
+
+### v1.1 Task Summary
+
+| Task | Description | Depends On |
+|------|-------------|------------|
+| 1 | Persistent Key Pair Storage | None |
+| 2 | Spooler Metrics Collection | None |
+| 3 | PrinterManager — Multi-Printer Detection & Selection | None |
+| 4 | Admin Authentication (`ADMIN_TOKEN`, session cookie) | None |
+| 5 | Admin API Endpoints (`/api/admin/*`) | Tasks 1, 2, 3, 4 |
+| 6 | Admin Dashboard Frontend (`/admin` React route) | Task 5 |
+| 7 | Private Key QR Scan in reader.html | None |
+
+### Key Architecture Decisions
+
+- **D-001 Persistent Keys**: Private key saved to `data/private_key.pem` (0600). Loaded only during first-run QR generation, then burned. Subsequent starts reuse public key only.
+- **D-002 Admin Auth**: `ADMIN_TOKEN` env var, session cookie via `POST /api/admin/login`. Constant-time token comparison.
+- **D-003 PrinterManager**: Detects all connected printers, holds active reference, supports runtime switching via admin API.
+
+### New Files (planned)
+
+| File | Purpose |
+|------|---------|
+| `pkg/printmgr/printmgr.go` | PrinterManager — detect, select, switch printers |
+| `pkg/admin/admin.go` | Admin session management, token auth |
+| `frontend/src/pages/Admin.tsx` | Admin dashboard React page |
+| `frontend/src/lib/admin-api.ts` | Admin API client |
+
+### Last Updated
+
+2026-06-04 — **v1.1 planning complete**: Implementation plan written with 7 tasks, 3 architecture decisions. State files updated. Feature branch `feature/v1.1-admin-dashboard` ready to create.

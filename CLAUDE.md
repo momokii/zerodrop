@@ -222,3 +222,4 @@ curl -s http://localhost:8080/health
 | 17-20 | 2026-05-28 | Non-secure context detection, TLS self-signed cert + ServeTLS, TLS error suppression, PKCS#8 DER fix for X25519 |
 | 21 | 2026-05-30 | JWK format switch (X25519 Web Crypto compat), log ordering fix, fingerprint independence, paste listeners, cache busting reader URL |
 | 22 | 2026-05-31 | PEM non-blocking fallback, raw base64 paste support, extractJWK label handling, Makefile docker-up-rebuild target |
+| 23 | 2026-06-04 | Docker .env fix, QR interleaving fix (log.SetOutput stdout), PNG QR files, dual PEM+JWK QR, compact QR renderer (half-block), v1.1 admin dashboard plan written to docs/plans/, all .claude/ state files updated for v1.1 |

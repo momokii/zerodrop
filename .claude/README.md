@@ -6,7 +6,7 @@
 
 **Tech stack:** Go backend, React + Vite + shadcn/ui frontend, Docker Compose, Curve25519 cryptography.
 
-**Current phase:** **M-05 Complete** — ZeroDrop Terminal v1.0 ready for production deployment.
+**Current phase:** **v1.0 Complete, v1.1 Planning Complete** — Admin Dashboard & Key Persistence
 
 ---
 
@@ -49,6 +49,8 @@ Any agent arriving at this project cold **must** read these files in this exact 
 docs/
 ├── prd/
 │   └── PRD-001-zerodrop-terminal-v1.0.md  # Complete PRD for v1.0
+├── plans/
+│   └── v1.1-admin-dashboard.md  # v1.1 implementation plan (7 tasks)
 └── OVERVIEW.md             # Simple explanation for stakeholders
 
 pkg/                          # Go packages (M-01 through M-04 complete)
@@ -105,12 +107,13 @@ docker-compose.prod.yml       # ✅ Production overrides
 
 ## Current Task State
 
-- **Status file:** `state/CURRENT_STATUS.md` — **M-05 Complete + ECIES Crypto Chain** — Production ready
-- **Task backlog:** `state/TASK_QUEUE.md` — 5 milestones (ALL DONE ✅) + session 10 ECIES/QR/health/limit updates
-- **Decision history:** `state/DECISIONS_LOG.md` — 31 decisions logged (24 original + 6 from session 10 + 1 from session 11)
+- **Status file:** `state/CURRENT_STATUS.md` — **v1.0 Complete + v1.1 Planning** — Implementation plan ready
+- **Task backlog:** `state/TASK_QUEUE.md` — 5 v1.0 milestones (ALL DONE ✅) + 7 v1.1 tasks (TODO)
+- **Decision history:** `state/DECISIONS_LOG.md` — 34 decisions logged (31 v1.0 + 3 v1.1)
 - **PRD:** `docs/prd/PRD-001-zerodrop-terminal-v1.0.md` — updated with 400-char limit, FR-024 split, FR-030/FR-034 corrections
+- **v1.1 Plan:** `docs/plans/v1.1-admin-dashboard.md` — 7 tasks with exact code and architecture decisions
 
-**Project Status:** ZeroDrop Terminal v1.0 is **PRODUCTION READY** with full ECIES encryption chain (X25519 ECDH + AES-256-GCM) across all layers, QR ESC/POS rasterization, and health check 503 support.
+**Project Status:** ZeroDrop Terminal v1.0 is **PRODUCTION READY**. v1.1 (Admin Dashboard & Key Persistence) planning complete — ready to implement on `feature/v1.1-admin-dashboard` branch.
 
 ---
 
@@ -140,7 +143,8 @@ This is not optional. Keeping `.claude/` accurate is part of every task.
 
 ### Architecture Decisions
 
-- **Single printer**: v1.0 supports one thermal printer (multi-printer deferred to v1.1+)
+- **Single printer**: v1.0 supports one thermal printer (multi-printer via PrinterManager in v1.1)
+- **Persistent keys**: v1.1 saves private key to disk on first run, reuses across restarts (D-001)
 - **React + shadcn/ui**: Pre-built components for professional UI, fast implementation, simple to maintain
 - **ECIES protocol**: X25519 ECDH + AES-256-GCM across all layers; payload = `ZD1:base64(ephPubKey+iv+ciphertextWithTag)`
 - **QR version header**: `ZD1:` prefix for forward compatibility

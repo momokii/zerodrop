@@ -291,3 +291,33 @@
 **Alternatives Rejected:** Writing raw PKIX format manually (error-prone), keeping raw bytes and changing frontend to use `importKey("raw", ...)` (not supported by all browsers for ECDH), using subjectPublicKey encoding without algorithm identifier (non-standard).
 **Security Implications:** Positive — proper SPKI format enables browser crypto interoperability. No security regression as the underlying key material (X25519) is unchanged.
 **Impact:** `pkg/crypto/crypto.go` `SavePublicKeyToFile()` and `GetPublicKeyFingerprint()` updated. Old PEM files deleted; server regenerates with correct format on restart.
+
+---
+
+**Decision:** v1.1-D001 Persistent Key Pair Storage
+**Date:** 2026-06-04
+**Context:** v1.0 generates ephemeral key pairs — new keys every restart. If the operator doesn't save the private key QR before a crash, all ciphertexts from that session are permanently lost. For ZeroDrop's air-gapped/LAN deployment context, this operational risk is too high.
+**Rationale:** Save private key to `data/private_key.pem` (0600) on first run. Subsequent starts reuse the key pair without loading the private key into RAM. `KEY_ROTATE=true` forces regeneration. Private key only lives in RAM during initial QR display, then gets burned. Security guarantees preserved: server still cannot decrypt live payloads (private key never in RAM after setup), no database, Burn Protocol still applies.
+**Alternatives Rejected:** Keep ephemeral (data loss risk), HSM/TPM storage (overkill for air-gapped LAN), encrypt private key at rest (adds complexity, key still available to anyone with disk access on air-gapped machine).
+**Security Implications:** Tradeoff accepted — ephemeral keys provide perfect forward secrecy but operational data loss risk. For LAN/air-gapped deployment, disk access already implies full physical control. Private key file protected by 0600 + Docker non-root + `no-new-privileges`.
+**Impact:** `pkg/crypto/crypto.go` modified. New env var `KEY_ROTATE` (default `false`). Admin API can trigger rotation.
+
+---
+
+**Decision:** v1.1-D002 Admin Authentication — Token-Based with Session Cookie
+**Date:** 2026-06-04
+**Context:** Admin dashboard needs authentication. ZeroDrop is designed for LAN/air-gapped deployment — a full user system is overkill.
+**Rationale:** `ADMIN_TOKEN` env var (required for admin features). `POST /api/admin/login` with `{"token": "..."}` returns HMAC-signed session cookie. All `/api/admin/*` endpoints require valid session. Constant-time token comparison via `crypto/subtle.ConstantTimeCompare` to prevent timing attacks.
+**Alternatives Rejected:** HTTP Basic Auth (token in every request, less secure), JWT (overkill for single-app LAN deployment), username/password (adds user management complexity), no auth (unacceptable for admin endpoints).
+**Security Implications:** Positive — simple, auditable auth. Session cookie HMAC-signed prevents tampering. Constant-time comparison prevents timing attacks. Token stored in .env (gitignored).
+**Impact:** New `pkg/admin/admin.go`. New env var `ADMIN_TOKEN`. Admin API routes behind auth middleware.
+
+---
+
+**Decision:** v1.1-D003 PrinterManager — Runtime Printer Detection & Selection
+**Date:** 2026-06-04
+**Context:** v1.0 supports a single printer (auto-detect or mock). Operators with multiple printers need to select which one is active without restarting.
+**Rationale:** New `PrinterManager` struct detects all connected USB printers on startup. Holds reference to active printer. Admin API can trigger re-detection and switch active printer at runtime. Spooler gets its printer from the manager. Falls back to Mock Printer if no USB found.
+**Alternatives Rejected:** Keep single printer (limits flexibility), external config file for printer selection (operational burden), printer pooling (overkill for thermal printers that can't handle concurrent jobs).
+**Security Implications:** Neutral — printer selection is admin-only (requires auth). No sensitive data in printer info.
+**Impact:** New `pkg/printmgr/printmgr.go`. Spooler modified to get printer from manager. Admin API for printer listing and switching.

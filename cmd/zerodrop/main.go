@@ -83,7 +83,12 @@ func main() {
 
 	// Initialize or load key pair
 	log.Println("\n=== Key Provisioning ===")
-	keyPair, err := crypto.InitializeOrLoadKeyPair(cfg.PublicKeyPath, cfg.LogEnabled)
+	keyPair, err := crypto.InitializeOrLoadKeyPair(
+		cfg.PublicKeyPath,
+		cfg.PrivateKeyPath,
+		cfg.KeyRotate,
+		cfg.LogEnabled,
+	)
 	if err != nil {
 		log.Fatalf("Failed to initialize key pair: %v", err)
 	}
@@ -96,12 +101,16 @@ func main() {
 	})
 
 	log.Println("\n=== Burn Protocol ===")
-	log.Println("Executing Burn Protocol to destroy private key from memory...")
-	crypto.BurnProtocol(keyPair)
-	logger.Info("Burn Protocol complete", map[string]interface{}{
-		"status": "private_key_destroyed",
-	})
-	log.Println("Burn Protocol complete. Private key has been destroyed from server memory.")
+	if keyPair.PrivateKey != nil {
+		log.Println("Executing Burn Protocol to destroy private key from memory...")
+		crypto.BurnProtocol(keyPair)
+		logger.Info("Burn Protocol complete", map[string]interface{}{
+			"status": "private_key_destroyed",
+		})
+		log.Println("Burn Protocol complete. Private key has been destroyed from server memory.")
+	} else {
+		log.Println("Skipped — private key not loaded (reusing existing key pair from disk).")
+	}
 
 	// Create printer based on configuration
 	var printImpl printer.Printer

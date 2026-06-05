@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -30,6 +31,16 @@ type Config struct {
 	// When enabled, Web Crypto API works from other devices on the network
 	// since crypto.subtle requires a secure context (HTTPS or localhost).
 	TLSEnabled bool
+
+	// AdminToken is the authentication token for the admin dashboard.
+	// If empty, admin endpoints are disabled.
+	AdminToken string
+
+	// KeyRotate forces generation of a new key pair on next startup.
+	KeyRotate bool
+
+	// PrivateKeyPath is where the private key PEM is stored.
+	PrivateKeyPath string
 }
 
 // DefaultConfig returns a configuration with default values
@@ -130,6 +141,25 @@ func LoadFromEnv() (*Config, error) {
 			return nil, fmt.Errorf("TLS_ENABLED must be a boolean (true/false): %w", err)
 		}
 		config.TLSEnabled = enabled
+	}
+
+	// Optional: ADMIN_TOKEN
+	config.AdminToken = os.Getenv("ADMIN_TOKEN")
+
+	// Optional: KEY_ROTATE
+	if val := os.Getenv("KEY_ROTATE"); val != "" {
+		enabled, err := strconv.ParseBool(val)
+		if err != nil {
+			return nil, fmt.Errorf("KEY_ROTATE must be a boolean: %w", err)
+		}
+		config.KeyRotate = enabled
+	}
+
+	// Optional: PRIVATE_KEY_PATH (default: derived from PublicKeyPath)
+	if val := os.Getenv("PRIVATE_KEY_PATH"); val != "" {
+		config.PrivateKeyPath = val
+	} else {
+		config.PrivateKeyPath = filepath.Join(filepath.Dir(config.PublicKeyPath), "private_key.pem")
 	}
 
 	return config, nil

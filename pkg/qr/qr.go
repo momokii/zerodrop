@@ -4,6 +4,7 @@ package qr
 import (
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
@@ -126,16 +127,47 @@ func GenerateQRPNG(data []byte) ([]byte, error) {
 	return png, nil
 }
 
-// GenerateQRASCII generates an ASCII art representation of a QR code suitable
-// for terminal display. Uses the go-qrcode ToString() which renders with
-// unicode block characters (██ and spaces) for clear visual scanning.
+// GenerateQRASCII generates a compact ASCII art QR code using Unicode
+// half-block characters (▀▄█). Each pair of QR rows is encoded into one
+// text line, halving the vertical size compared to go-qrcode's ToString().
+//
+// Uses Low error correction for a smaller QR version (fewer modules).
 func GenerateQRASCII(content string) (string, error) {
-	qr, err := qrcode.New(content, qrcode.Medium)
+	qr, err := qrcode.New(content, qrcode.Low)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate QR code for ASCII: %w", err)
 	}
 
-	return qr.ToString(false), nil
+	bitmap := qr.Bitmap()
+	size := len(bitmap)
+
+	var buf strings.Builder
+
+	// Process two rows at a time using half-block characters:
+	//   top=black,bot=black → █    top=black,bot=white → ▀
+	//   top=white,bot=black → ▄    top=white,bot=white → space
+	for y := 0; y < size; y += 2 {
+		for x := 0; x < size; x++ {
+			top := bitmap[y][x]
+			bot := false
+			if y+1 < size {
+				bot = bitmap[y+1][x]
+			}
+			switch {
+			case top && bot:
+				buf.WriteString("█")
+			case top && !bot:
+				buf.WriteString("▀")
+			case !top && bot:
+				buf.WriteString("▄")
+			default:
+				buf.WriteString(" ")
+			}
+		}
+		buf.WriteString("\n")
+	}
+
+	return buf.String(), nil
 }
 
 // GenerateRawQRPNG generates a QR code PNG image from raw data.

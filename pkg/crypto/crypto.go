@@ -66,14 +66,13 @@ func SavePublicKeyToFile(publicKey *ecdh.PublicKey, filepath string) error {
 	return nil
 }
 
-// LogPrivateKeyAsQR logs the private key as a scannable QR code to stdout
-// and saves a PNG file for reliable phone scanning. The key is exported in
+// LogPrivateKeyAsQR logs the private key as QR codes (PEM + JWK) to stdout
+// and saves PNG files for reliable phone scanning. The key is exported in
 // PKCS#8 DER format so it can be imported by reader.html via
 // crypto.subtle.importKey("pkcs8", ...).
 //
 // All output goes to stdout as a single write to prevent Docker from
 // interleaving it with stderr log lines.
-// saveDir is the directory where the PNG QR will be saved (alongside the public key).
 func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey, saveDir string, logEnabled bool) error {
 	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
 	if err != nil {
@@ -84,71 +83,87 @@ func LogPrivateKeyAsQR(privateKey *ecdh.PrivateKey, saveDir string, logEnabled b
 		Bytes: pkcs8Bytes,
 	})
 
-	// Save PNG QR to file — this is the primary scannable target since
-	// ASCII art QR in terminal/Docker logs is distorted by font aspect ratios.
-	pngPath := filepath.Join(saveDir, "private_key_qr.png")
-	pngData, pngErr := qr.GenerateRawQRPNG(privateKeyPEM)
-	if pngErr == nil {
-		if writeErr := os.WriteFile(pngPath, pngData, 0600); writeErr != nil {
-			log.Printf("WARNING: Could not save private key QR PNG: %v", writeErr)
-			pngPath = ""
+	// Build JWK (RFC 8037) — recommended format for reader.html
+	privRaw := privateKey.Bytes()
+	pubRaw := privateKey.PublicKey().Bytes()
+	jwk := map[string]string{
+		"kty": "OKP",
+		"crv": "X25519",
+		"x":   base64.RawURLEncoding.EncodeToString(pubRaw),
+		"d":   base64.RawURLEncoding.EncodeToString(privRaw),
+	}
+	jwkJSON, _ := json.Marshal(jwk)
+
+	// Save scannable PNG QRs to file
+	var pngPaths []string
+	for _, item := range []struct {
+		name    string
+		content []byte
+	}{
+		{"private_key_qr.png", privateKeyPEM},
+		{"private_key_jwk_qr.png", jwkJSON},
+	} {
+		p := filepath.Join(saveDir, item.name)
+		pngData, pngErr := qr.GenerateRawQRPNG(item.content)
+		if pngErr == nil {
+			if writeErr := os.WriteFile(p, pngData, 0600); writeErr != nil {
+				log.Printf("WARNING: Could not save %s: %v", item.name, writeErr)
+				continue
+			}
+			pngPaths = append(pngPaths, item.name)
+		} else {
+			log.Printf("WARNING: Could not generate %s: %v", item.name, pngErr)
 		}
-	} else {
-		log.Printf("WARNING: Could not generate private key QR PNG: %v", pngErr)
-		pngPath = ""
 	}
 
 	// Build the ENTIRE output in one buffer so it hits stdout as a single write.
 	var buf strings.Builder
 
 	buf.WriteString("\n")
-	buf.WriteString("╔════════════════════════════════════════════════════════════════╗\n")
-	buf.WriteString("║              PRIVATE KEY — SAVE SECURELY                     ║\n")
-	if pngPath != "" {
-		buf.WriteString("║  Scan the PNG file below with your phone.                     ║\n")
-		buf.WriteString("║  DELETE the file after scanning — key is destroyed from RAM.  ║\n")
-	} else {
-		buf.WriteString("║  Scan the QR below or use the text key (if LOG_ENABLED).      ║\n")
-	}
-	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\n")
+	buf.WriteString("╔═══════════════════════════════════════════════════════╗\n")
+	buf.WriteString("║          PRIVATE KEY — SAVE SECURELY                 ║\n")
+	buf.WriteString("║  Scan PNG files with phone for best results.         ║\n")
+	buf.WriteString("║  DELETE files after scanning — key burned from RAM.  ║\n")
+	buf.WriteString("╚═══════════════════════════════════════════════════════╝\n")
 	buf.WriteString("\n")
 
-	if pngPath != "" {
-		// Docker path maps data/ → ./data on host, show the host-relative path
-		buf.WriteString(fmt.Sprintf("  Scannable QR PNG: data/private_key_qr.png\n"))
-		buf.WriteString(fmt.Sprintf("  (host path: ./data/private_key_qr.png)\n"))
-		buf.WriteString("\n")
-	}
-
-	asciiArt, asciiErr := qr.GenerateQRASCII(string(privateKeyPEM))
-	if asciiErr == nil {
-		buf.WriteString(asciiArt)
-		buf.WriteString("\n")
-	}
-
-	// JWK and PEM plaintext only when structured logging is enabled
-	if logEnabled {
-		privRaw := privateKey.Bytes()
-		pubRaw := privateKey.PublicKey().Bytes()
-		jwk := map[string]string{
-			"kty": "OKP",
-			"crv": "X25519",
-			"x":   base64.RawURLEncoding.EncodeToString(pubRaw),
-			"d":   base64.RawURLEncoding.EncodeToString(privRaw),
+	if len(pngPaths) > 0 {
+		buf.WriteString("  Scannable PNG QR files in data/:\n")
+		for _, p := range pngPaths {
+			buf.WriteString(fmt.Sprintf("    - %s\n", p))
 		}
-		jwkJSON, _ := json.Marshal(jwk)
-
-		buf.WriteString("\n=== PRIVATE KEY (JWK) - Recommended for reader.html ===\n")
-		buf.Write(jwkJSON)
-		buf.WriteString("\n=== END PRIVATE KEY JWK ===\n\n")
-		buf.WriteString("=== PRIVATE KEY (PEM) - Alternative format ===\n")
-		buf.Write(privateKeyPEM)
-		buf.WriteString("\n=== END PRIVATE KEY PEM ===\n\n")
+		buf.WriteString("\n")
 	}
 
-	buf.WriteString("╔════════════════════════════════════════════════════════════════╗\n")
-	buf.WriteString("║              END OF PRIVATE KEY                               ║\n")
-	buf.WriteString("╚════════════════════════════════════════════════════════════════╝\n")
+	// PEM QR (for reader.html PKCS#8 import)
+	buf.WriteString("  ── PEM format ──\n")
+	pemQR, pemErr := qr.GenerateQRASCII(string(privateKeyPEM))
+	if pemErr == nil {
+		buf.WriteString(pemQR)
+	}
+	buf.WriteString("\n")
+
+	// JWK QR (recommended for reader.html)
+	buf.WriteString("  ── JWK format (recommended) ──\n")
+	jwkQR, jwkErr := qr.GenerateQRASCII(string(jwkJSON))
+	if jwkErr == nil {
+		buf.WriteString(jwkQR)
+	}
+	buf.WriteString("\n")
+
+	// Plaintext copies when logging is enabled
+	if logEnabled {
+		buf.WriteString("=== PRIVATE KEY (JWK) ===\n")
+		buf.Write(jwkJSON)
+		buf.WriteString("\n=== END JWK ===\n\n")
+		buf.WriteString("=== PRIVATE KEY (PEM) ===\n")
+		buf.Write(privateKeyPEM)
+		buf.WriteString("=== END PEM ===\n\n")
+	}
+
+	buf.WriteString("╔═══════════════════════════════════════════════════════╗\n")
+	buf.WriteString("║              END OF PRIVATE KEY                      ║\n")
+	buf.WriteString("╚═══════════════════════════════════════════════════════╝\n")
 	buf.WriteString("\n")
 
 	os.Stdout.WriteString(buf.String())

@@ -16,6 +16,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/zerodrop/terminal/pkg/config"
+	"github.com/zerodrop/terminal/pkg/printer"
+	"github.com/zerodrop/terminal/pkg/spooler"
 )
 
 // tlsErrorFilter discards Go runtime log lines about expected TLS handshake
@@ -106,10 +108,12 @@ func extractIP(remoteAddr string) string {
 
 // Server handles HTTP requests for the ZeroDrop API
 type Server struct {
-	config  *config.Config
-	spooler chan []byte
-	printer interface{}
-	router  *mux.Router
+	config   *config.Config
+	spooler  chan []byte
+	printer  interface{}
+	router   *mux.Router
+	admin    *AdminHandler
+	sessions *SessionStore
 }
 
 // DropRequest represents the JSON payload for /drop endpoint
@@ -128,6 +132,40 @@ func NewServer(cfg *config.Config, spooler chan []byte, printer interface{}) *Se
 
 	s.setupRoutes()
 	return s
+}
+
+// EnableAdmin wires up admin dashboard routes. Call after NewServer if
+// AdminToken is configured.
+func (s *Server) EnableAdmin(
+	splr *spooler.Spooler,
+	printerMgr *printer.PrinterManager,
+	publicKeyPath, privateKeyPath, keyFingerprint string,
+) {
+	s.sessions = NewSessionStore(s.config.AdminToken)
+	s.admin = NewAdminHandler(
+		s.sessions, splr, printerMgr,
+		publicKeyPath, privateKeyPath, keyFingerprint,
+	)
+	s.setupAdminRoutes()
+}
+
+// setupAdminRoutes registers all admin API routes.
+func (s *Server) setupAdminRoutes() {
+	adminRouter := s.router.PathPrefix("/api/admin").Subrouter()
+
+	// Login is public (no auth required)
+	adminRouter.Handle("/login", http.HandlerFunc(s.admin.handleLogin)).Methods(http.MethodPost)
+
+	// All other admin routes require auth
+	adminAuth := adminRouter.NewRoute().Subrouter()
+	adminAuth.Use(s.sessions.RequireAuth)
+	adminAuth.Handle("/status", http.HandlerFunc(s.admin.handleStatus)).Methods(http.MethodGet)
+	adminAuth.Handle("/metrics", http.HandlerFunc(s.admin.handleMetrics)).Methods(http.MethodGet)
+	adminAuth.Handle("/printers", http.HandlerFunc(s.admin.handleListPrinters)).Methods(http.MethodGet)
+	adminAuth.Handle("/printers/active", http.HandlerFunc(s.admin.handleSetActivePrinter)).Methods(http.MethodPost)
+	adminAuth.Handle("/key", http.HandlerFunc(s.admin.handleKeyDownload)).Methods(http.MethodGet)
+	adminAuth.Handle("/key/qr", http.HandlerFunc(s.admin.handleKeyQRDownload)).Methods(http.MethodGet)
+	adminAuth.Handle("/key/rotate", http.HandlerFunc(s.admin.handleKeyRotate)).Methods(http.MethodPost)
 }
 
 // setupRoutes configures all HTTP routes

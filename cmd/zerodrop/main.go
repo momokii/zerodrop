@@ -176,6 +176,15 @@ func main() {
 	// Create API server with printer for health checks
 	server := api.NewServer(cfg, splr.Queue(), printInterface)
 
+	// Enable admin dashboard if token is configured
+	if cfg.AdminToken != "" {
+		fingerprint, _ := crypto.GetPublicKeyFingerprint(keyPair.PublicKey)
+		server.EnableAdmin(splr, pm, cfg.PublicKeyPath, cfg.PrivateKeyPath, fingerprint)
+		log.Println("Admin dashboard enabled at /admin")
+	} else {
+		log.Println("Admin dashboard disabled (set ADMIN_TOKEN to enable)")
+	}
+
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

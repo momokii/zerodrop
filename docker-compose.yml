@@ -20,6 +20,8 @@ services:
       - RATE_LIMIT_BURST=${RATE_LIMIT_BURST:-1}
       - LOG_ENABLED=${LOG_ENABLED:-false}
       - TLS_ENABLED=${TLS_ENABLED:-false}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-}
+      - KEY_ROTATE=${KEY_ROTATE:-false}
     volumes:
       # Persist public key
       - ./data:/app/data

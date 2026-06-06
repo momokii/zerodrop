@@ -233,6 +233,9 @@ ZD1:base64data..."></textarea>
 
         <div class="section">
             <div class="section-title">3. Paste Private Key</div>
+            <div style="display:flex;gap:8px;margin-bottom:8px;">
+                <button id="scanKeyBtn" style="flex:1;padding:10px;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;">📷 Scan Private Key QR</button>
+            </div>
             <textarea id="privateKey" placeholder='Paste private key (JWK or PEM):
 JWK: {&quot;kty&quot;:&quot;OKP&quot;,&quot;crv&quot;:&quot;X25519&quot;,&quot;x&quot;:&quot;...&quot;,&quot;d&quot;:&quot;...&quot;}
 PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
@@ -255,7 +258,7 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
             No data is sent to any server. Your private key never leaves this device.
         </p>
         <p class="info" style="font-size:10px;color:#999;margin-top:5px;">
-            v7 &middot; Loaded: <span id="loadTime">--</span>
+            v8 &middot; Loaded: <span id="loadTime">--</span>
         </p>
     </div>
 
@@ -656,6 +659,94 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
         privateKeyInput.addEventListener('paste', () => {
             // Defer to let the paste value settle, then trigger load
             setTimeout(privateKeyChanged, 50);
+        });
+
+        // --- Private Key QR Camera Scan ---
+        let scanningPrivateKey = false;
+        const scanKeyBtn = document.getElementById('scanKeyBtn');
+
+        scanKeyBtn.addEventListener('click', async () => {
+            if (scanningPrivateKey) {
+                scanningPrivateKey = false;
+                scanKeyBtn.textContent = '📷 Scan Private Key QR';
+                return;
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                showStatus('Camera unavailable — need HTTPS or localhost for camera access. Paste the key manually.', 'error');
+                return;
+            }
+
+            scanningPrivateKey = true;
+            scanKeyBtn.textContent = '⏹ Stop Scanning...';
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+                });
+
+                const scanVideo = document.createElement('video');
+                scanVideo.srcObject = stream;
+                scanVideo.setAttribute('playsinline', '');
+                await scanVideo.play();
+
+                const scanCanvas = document.createElement('canvas');
+                const scanCtx = scanCanvas.getContext('2d');
+                const SCAN_W = 640, SCAN_H = 480;
+                let scanFrames = 0;
+                let lastScanFeedback = 0;
+
+                function scanKeyFrame() {
+                    if (!scanningPrivateKey) {
+                        stream.getTracks().forEach(t => t.stop());
+                        scanKeyBtn.textContent = '📷 Scan Private Key QR';
+                        return;
+                    }
+
+                    if (scanVideo.readyState >= scanVideo.HAVE_ENOUGH_DATA && scanVideo.videoWidth > 0) {
+                        scanFrames++;
+                        const now = Date.now();
+                        if (now - lastScanFeedback > 5000) {
+                            lastScanFeedback = now;
+                            showStatus('Scanning for private key QR... Hold the QR steady.', 'scanning');
+                        }
+
+                        // Scan every 4th frame to reduce CPU
+                        if (scanFrames % 4 === 0) {
+                            scanCanvas.width = SCAN_W;
+                            scanCanvas.height = SCAN_H;
+                            scanCtx.drawImage(scanVideo, 0, 0, SCAN_W, SCAN_H);
+                            const imgData = scanCtx.getImageData(0, 0, SCAN_W, SCAN_H);
+                            const code = jsQR(imgData.data, imgData.width, imgData.height);
+
+                            if (code && code.data) {
+                                const data = code.data.trim();
+                                // Check if it's a JWK or PEM private key
+                                const isKey = data.startsWith('{') || data.startsWith('-----BEGIN');
+                                // Also handle label-wrapped JWK
+                                const hasJWK = data.includes('"kty"') && data.includes('"d"');
+
+                                if (isKey || hasJWK) {
+                                    scanningPrivateKey = false;
+                                    stream.getTracks().forEach(t => t.stop());
+                                    scanKeyBtn.textContent = '📷 Scan Private Key QR';
+                                    privateKeyInput.value = data;
+                                    privateKeyChanged();
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    requestAnimationFrame(scanKeyFrame);
+                }
+                requestAnimationFrame(scanKeyFrame);
+            } catch (err) {
+                scanningPrivateKey = false;
+                scanKeyBtn.textContent = '📷 Scan Private Key QR';
+                const reason = err.name === 'NotAllowedError' ? 'Camera permission denied' :
+                               err.name === 'NotFoundError' ? 'No camera found' : (err.message || err.name);
+                showStatus('Camera error: ' + reason + ' — paste the key manually instead.', 'error');
+            }
         });
 
         async function tryUpdateFingerprintFallback() {

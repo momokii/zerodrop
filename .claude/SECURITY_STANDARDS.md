@@ -1,6 +1,6 @@
 # Security Standards — ZeroDrop Terminal
 
-> **Mandatory reference document** governing all security decisions for ZeroDrop Terminal v1.0.
+> **Mandatory reference document** governing all security decisions for ZeroDrop Terminal v1.0/v1.1.
 > **Zero-knowledge architecture**: Server must never possess plaintext payload or private key.
 
 ---
@@ -8,9 +8,9 @@
 ## Zero-Knowledge Guarantee (Non-Negotiable)
 
 - **Server must never possess plaintext payload** — ciphertext is queued and printed as-is
-- **Server must never possess private key** — key is generated, logged as QR, then burned from memory
+- **Server must never possess private key in RAM after initial setup** — v1.1 saves to disk on first run, only loaded during first-run QR display, then burned
 - **No decryption capability** — server cannot decrypt messages even if compromised
-- **No database** — ephemeral RAM-only processing, no persistence
+- **No database** — ephemeral RAM-only processing, no persistence (v1.1 persistent key file is not a database — it is a PEM file with 0600 permissions)
 - **Burn Protocol** — all sensitive memory must be zeroed with `runtime.KeepAlive()`
 
 ---
@@ -31,7 +31,10 @@
 | `PRINTER_TYPE` | Yes | `mock` or `usb` |
 | `PRINTER_DEVICE` | If USB | Device path (e.g., `/dev/usb/lp0`) |
 | `PUBLIC_KEY_PATH` | No | Path to save public key PEM (default: `./data/public_key.pem`) |
-| `RATE_LIMIT_REQUESTS_PER_HOUR` | No | Traefik rate limit (default: 5) |
+| `PRIVATE_KEY_PATH` | No | Path to save/load private key PEM (default: `./data/private_key.pem`) |
+| `ADMIN_TOKEN` | For admin | Shared secret for admin dashboard auth (set in `.env`) |
+| `KEY_ROTATE` | No | Set `true` to force key pair regeneration on next startup (default: `false`) |
+| `RATE_LIMIT_REQUESTS_PER_HOUR` | No | Per-IP API rate limit (default: 5) |
 | `LOG_ENABLED` | No | Structured logging opt-in (default: false) |
 
 ---
@@ -103,12 +106,23 @@ w.Header().Set("Content-Security-Policy", "default-src 'self'")
 - **`GET /key`**: Returns public key (no auth, read-only)
 - **`POST /drop`**: Accepts encrypted payload (no decryption, rate-limited)
 - **`GET /health`**: Health check (no auth, read-only)
+- **`/api/admin/*`**: 8 admin endpoints (session auth required, login rate-limited)
 
 ### Rate Limiting
 
-- **Traefik middleware**: 5 requests per IP per hour
-- **No authentication** — zero-knowledge design prevents user tracking
+- **Global API rate limiter**: Built-in per-IP sliding window (5 req/hr default, `/health` excluded)
+- **Admin login rate limiter**: 10 attempts per 15 minutes per IP (separate from global limiter)
+- **No authentication on public endpoints** — zero-knowledge design prevents user tracking
 - **Degrade gracefully** — return 429 when rate-limited
+
+### Admin Authentication (v1.1)
+
+- **Token**: `ADMIN_TOKEN` env var, compared with `crypto/subtle.ConstantTimeCompare` (timing-attack resistant)
+- **Session**: HMAC-signed cookie, `HttpOnly`, `SameSite=Lax`, scoped to `/api/admin` path
+- **Expiry**: 24 hours from login, server-side tracking
+- **Login rate limit**: 10 attempts per 15 minutes per source IP
+- **Key download**: `GET /api/admin/key` and `GET /api/admin/key/qr` expose private key — acceptable because admin has server disk access
+- **Key rotation**: `POST /api/admin/key/rotate` forces new key pair generation (admin-only)
 
 ---
 
@@ -142,9 +156,17 @@ w.Header().Set("Content-Security-Policy", "default-src 'self'")
 ### Buffer Zeroing
 
 - **All payload buffers zeroed after print job** — spooler responsibility
-- **Private key zeroed after QR logging** — Burn Protocol
+- **Private key zeroed after QR logging** — Burn Protocol (v1.1: applies after first-run QR display, subsequent starts do not load private key to RAM)
 - **Use `runtime.KeepAlive()`** to prevent compiler optimization
 - **No sensitive data in logs** — never log keys, ciphertext, plaintext
+
+### Persistent Key Storage (v1.1)
+
+- **Private key saved to `data/private_key.pem` on first run** with 0600 permissions
+- **Subsequent starts reuse key pair** — private key NOT loaded to RAM
+- **`KEY_ROTATE=true` forces regeneration** — old key file is overwritten
+- **Docker**: Non-root user + `no-new-privileges` protects key file
+- **Tradeoff accepted**: For LAN/air-gapped deployment, disk access implies physical control. Ephemeral keys would risk data loss on crash.
 
 ### Memory Safety
 

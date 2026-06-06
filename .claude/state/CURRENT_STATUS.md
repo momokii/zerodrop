@@ -1,6 +1,6 @@
 ## Project Phase
 
-Implementation — **v1.0 Complete, v1.1 Planning Complete** — Admin Dashboard & Key Persistence
+**v1.1 Implementation Complete — Ready for Merge** on `feature/v1.1-admin-dashboard` branch
 
 ---
 
@@ -15,15 +15,19 @@ Implementation — **v1.0 Complete, v1.1 Planning Complete** — Admin Dashboard
 - [x] M-04: USB Printer & Health Check
 - [x] M-05: Frontend & Production Readiness
 - [x] v1.1 Implementation Plan written (`docs/plans/v1.1-admin-dashboard.md`)
+- [x] v1.1-T1: Persistent Key Pair Storage
+- [x] v1.1-T2: Spooler Metrics Collection
+- [x] v1.1-T3: PrinterManager — Multi-Printer Detection & Selection
+- [x] v1.1-T4: Admin Authentication
+- [x] v1.1-T5: Admin API Endpoints (8 endpoints at /api/admin/*)
+- [x] v1.1-T6: Admin Dashboard Frontend (/admin React route)
+- [x] v1.1-T7: Private Key QR Scan in reader.html
 
 ---
 
 ## In Progress
 
-- **v1.1 Implementation** — Ready to start on `feature/v1.1-admin-dashboard` branch
-  - Plan document complete: `docs/plans/v1.1-admin-dashboard.md`
-  - 7 tasks defined with exact code, file paths, and architecture decisions
-  - Branch needs to be created from main
+- None — v1.1 complete, awaiting merge to main
 
 ---
 
@@ -56,9 +60,11 @@ Implementation — **v1.0 Complete, v1.1 Planning Complete** — Admin Dashboard
 - QR version header (`ZD1:`) enables forward compatibility
 - Key fingerprinting (SHA-256) provides operator verification against key substitution
 - Frontend uses Web Crypto API (browser-native) — no external crypto libraries
-- All 23 tests passing with race detection enabled
+- All 43 tests passing with race detection enabled (up from 26 in v1.0)
 - `govulncheck` shows no known vulnerabilities
 - Frontend dependencies have only dev-time vulnerabilities (esbuild/vite not in production)
+- Admin auth uses constant-time token comparison with session cookies (24h expiry)
+- Login rate-limited: 10 attempts per 15 minutes per IP
 
 ---
 
@@ -88,7 +94,7 @@ Implementation — **v1.0 Complete, v1.1 Planning Complete** — Admin Dashboard
 ## Codebase Statistics
 
 - **Total packages**: 8 Go packages (added `pkg/qr/`) + 1 React frontend
-- **Total tests**: 23 passing (Go backend)
+- **Total tests**: 43 passing (Go backend) — up from 26 in v1.0
 - **Go dependencies**: 2 (gorilla/mux, skip2/go-qrcode)
 - **Frontend dependencies**: 343 packages (344 with audit) + 257KB jsQR offline library
 - **Vulnerabilities**: 0 Go, 2 moderate (frontend dev-time only)
@@ -341,45 +347,46 @@ Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go ser
 
 ---
 
-## v1.1 Plan — Admin Dashboard & Key Persistence (2026-06-04)
+## v1.1 — Admin Dashboard & Key Persistence (2026-06-06 COMPLETE)
 
-### Plan Document
+### Branch
 
-`docs/plans/v1.1-admin-dashboard.md` — 7 tasks with exact Go/TypeScript code, file paths, architecture decisions.
+`feature/v1.1-admin-dashboard` — ready for merge to main.
 
-### Branch Strategy
+### Task Summary
 
-- v1.1 implementation on `feature/v1.1-admin-dashboard` branch
-- v1.0 `main` branch is stable — no changes needed
-- Merge feature branch to main when v1.1 is complete
+| Task | Description | Status |
+|------|-------------|--------|
+| 1 | Persistent Key Pair Storage | **DONE** |
+| 2 | Spooler Metrics Collection | **DONE** |
+| 3 | PrinterManager — Multi-Printer Detection & Selection | **DONE** |
+| 4 | Admin Authentication (`ADMIN_TOKEN`, session cookie, login rate limit) | **DONE** |
+| 5 | Admin API Endpoints (8 endpoints at `/api/admin/*`) | **DONE** |
+| 6 | Admin Dashboard Frontend (`/admin` React route) | **DONE** |
+| 7 | Private Key QR Scan in reader.html | **DONE** |
 
-### v1.1 Task Summary
-
-| Task | Description | Depends On |
-|------|-------------|------------|
-| 1 | Persistent Key Pair Storage | None |
-| 2 | Spooler Metrics Collection | None |
-| 3 | PrinterManager — Multi-Printer Detection & Selection | None |
-| 4 | Admin Authentication (`ADMIN_TOKEN`, session cookie) | None |
-| 5 | Admin API Endpoints (`/api/admin/*`) | Tasks 1, 2, 3, 4 |
-| 6 | Admin Dashboard Frontend (`/admin` React route) | Task 5 |
-| 7 | Private Key QR Scan in reader.html | None |
-
-### Key Architecture Decisions
-
-- **D-001 Persistent Keys**: Private key saved to `data/private_key.pem` (0600). Loaded only during first-run QR generation, then burned. Subsequent starts reuse public key only.
-- **D-002 Admin Auth**: `ADMIN_TOKEN` env var, session cookie via `POST /api/admin/login`. Constant-time token comparison.
-- **D-003 PrinterManager**: Detects all connected printers, holds active reference, supports runtime switching via admin API.
-
-### New Files (planned)
+### New Files
 
 | File | Purpose |
 |------|---------|
-| `pkg/printmgr/printmgr.go` | PrinterManager — detect, select, switch printers |
-| `pkg/admin/admin.go` | Admin session management, token auth |
+| `pkg/spooler/metrics.go` | Thread-safe Metrics struct (queue depth, processed/failed, duration) |
+| `pkg/printer/manager.go` | PrinterManager — detect, select, switch printers at runtime |
+| `pkg/printer/manager_test.go` | PrinterManager tests |
+| `pkg/api/middleware.go` | Admin auth middleware, session cookies, login rate limiting |
+| `pkg/api/middleware_test.go` | Middleware tests |
+| `pkg/api/admin.go` | 8 admin API endpoint handlers |
+| `pkg/api/admin_test.go` | Admin API tests |
 | `frontend/src/pages/Admin.tsx` | Admin dashboard React page |
-| `frontend/src/lib/admin-api.ts` | Admin API client |
+| `frontend/src/lib/admin-api.ts` | Admin API client functions |
+
+### New Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `ADMIN_TOKEN` | Shared secret for admin auth (set in `.env`) |
+| `KEY_ROTATE` | Set `true` to force key regeneration (default: `false`) |
+| `PRIVATE_KEY_PATH` | Path to save/load private key PEM (default: `./data/private_key.pem`) |
 
 ### Last Updated
 
-2026-06-04 — **v1.1 planning complete**: Implementation plan written with 7 tasks, 3 architecture decisions. State files updated. Feature branch `feature/v1.1-admin-dashboard` ready to create.
+2026-06-06 — **v1.1 implementation complete**: All 7 tasks done on `feature/v1.1-admin-dashboard` branch. 43 tests passing. Ready for merge to main.

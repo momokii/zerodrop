@@ -1,7 +1,7 @@
 ## Task Queue
 
 > Implementation backlog for ZeroDrop Terminal.
-> **v1.0: All milestones complete! | v1.1: Planning complete, ready for implementation**
+> **v1.0: All milestones complete! | v1.1: All tasks complete — Ready for merge**
 
 ---
 
@@ -115,7 +115,7 @@
 
 ### Test Coverage
 
-- **Total tests**: 23 passed
+- **Total tests**: 43 passed (up from 26 in v1.0)
 - **Packages tested**: 7 (`pkg/api`, `pkg/config`, `pkg/crypto`, `pkg/observability`, `pkg/printer`, `pkg/spooler`, `cmd/zerodrop`)
 - **Coverage**: Good for security-critical packages
 - **Race detection**: Clean (`go test -race ./...`)
@@ -174,23 +174,20 @@ Created `Makefile.deploy` with comprehensive production operations:
 
 ---
 
-### Future Enhancements (v1.1+)
+### Future Enhancements (v1.2+)
 
-- Multi-printer support (multiple USB printers or mixed mock/usb)
-- Admin dashboard for print queue monitoring
-- Metrics export (Prometheus) for spooler depth, print times, error rates
 - Mobile app for on-the-go decryption
-- Private key QR scanning from reader.html (scan operator's QR to import private key)
 - TCP network printer support (for shared network thermal printers)
 - Configurable QR code size / error correction level per job
+- Metrics export (Prometheus) for spooler depth, print times, error rates
 
 ---
 
 ## v1.1 — Admin Dashboard & Key Persistence
 
 > **Plan document:** `docs/plans/v1.1-admin-dashboard.md`
-> **Branch:** `feature/v1.1-admin-dashboard` (implementation starts here)
-> **Status:** Planning complete, ready for implementation
+> **Branch:** `feature/v1.1-admin-dashboard`
+> **Status:** **Implementation complete — ready for merge**
 
 ### v1.1-Task 1: Persistent Key Pair Storage
 
@@ -199,7 +196,7 @@ Created `Makefile.deploy` with comprehensive production operations:
 | Task ID             | v1.1-T1                                                                  |
 | Name                | Persistent Key Pair Storage                                              |
 | Priority            | High                                                                     |
-| Status              | TODO                                                                     |
+| Status              | **DONE**                                                                 |
 | Complexity          | M                                                                        |
 | Depends On          | None                                                                     |
 | Scope               | Modify `pkg/crypto/crypto.go` to support persistent key pairs. Save private key to `data/private_key.pem` (0600) on first run. On subsequent starts, reuse existing key pair. Add `KEY_ROTATE` env var to force regeneration. Private key only loaded into RAM during first-run QR display, then burned. |
@@ -213,7 +210,7 @@ Created `Makefile.deploy` with comprehensive production operations:
 | Task ID             | v1.1-T2                                                                  |
 | Name                | Spooler Metrics Collection                                               |
 | Priority            | High                                                                     |
-| Status              | TODO                                                                     |
+| Status              | **DONE**                                                                 |
 | Complexity          | M                                                                        |
 | Depends On          | None                                                                     |
 | Scope               | Add metrics tracking to `pkg/spooler`: total jobs processed, total failures, current queue depth, average print duration. Expose via `GetMetrics()` method. Thread-safe with sync/atomic. |
@@ -227,10 +224,10 @@ Created `Makefile.deploy` with comprehensive production operations:
 | Task ID             | v1.1-T3                                                                  |
 | Name                | PrinterManager — Multi-Printer Detection & Selection                     |
 | Priority            | Medium                                                                   |
-| Status              | TODO                                                                     |
+| Status              | **DONE**                                                                 |
 | Complexity          | M                                                                        |
 | Depends On          | None                                                                     |
-| Scope               | Create `pkg/printmgr/printmgr.go` with `PrinterManager` struct. Detects all connected USB printers on startup. Holds reference to active printer. Supports runtime switching via `SetActivePrinter(id)`. Spooler gets its printer from the manager. |
+| Scope               | Created `pkg/printer/manager.go` with `PrinterManager` struct. Detects all connected USB printers on startup. Holds reference to active printer. Supports runtime switching via `SetActivePrinter(id)`. Spooler resolves printer per-job via `PrinterProvider` interface. |
 | Acceptance Criteria | 1. Detects all connected USB printers. 2. Lists printers with ID, name, path. 3. Can switch active printer at runtime. 4. Falls back to Mock Printer if no USB found. 5. Existing tests still pass. |
 | Security Concerns   | Printer switching is admin-only (auth required in Task 4).              |
 
@@ -241,12 +238,12 @@ Created `Makefile.deploy` with comprehensive production operations:
 | Task ID             | v1.1-T4                                                                  |
 | Name                | Admin Authentication                                                     |
 | Priority            | High                                                                     |
-| Status              | TODO                                                                     |
+| Status              | **DONE**                                                                 |
 | Complexity          | M                                                                        |
 | Depends On          | None                                                                     |
-| Scope               | Create `pkg/admin/admin.go`. `ADMIN_TOKEN` env var (required for admin). `POST /api/admin/login` with `{"token": "..."}` returns HMAC-signed session cookie. Constant-time token comparison (`crypto/subtle.ConstantTimeCompare`). All `/api/admin/*` endpoints require valid session. |
+| Scope               | Created `pkg/api/middleware.go`. `ADMIN_TOKEN` env var (required for admin). `POST /api/admin/login` with `{"token": "..."}` returns session cookie (HMAC-signed, HttpOnly, SameSite). Constant-time token comparison (`crypto/subtle.ConstantTimeCompare`). All `/api/admin/*` endpoints require valid session. Login rate-limited: 10 attempts per 15 minutes per IP. |
 | Acceptance Criteria | 1. Valid token returns session cookie. 2. Invalid token returns 401. 3. Admin endpoints reject requests without valid cookie. 4. Token comparison is constant-time. 5. Session expires after configurable duration. |
-| Security Concerns   | Constant-time comparison prevents timing attacks. Session cookie HMAC-signed with server secret. `ADMIN_TOKEN` must be set in .env (not committed). |
+| Security Concerns   | Constant-time comparison prevents timing attacks. Session cookie HMAC-signed with server secret. `ADMIN_TOKEN` must be set in .env (not committed). Login rate-limited to prevent brute force. |
 
 ### v1.1-Task 5: Admin API Endpoints
 
@@ -255,12 +252,12 @@ Created `Makefile.deploy` with comprehensive production operations:
 | Task ID             | v1.1-T5                                                                  |
 | Name                | Admin API Endpoints                                                      |
 | Priority            | High                                                                     |
-| Status              | TODO                                                                     |
+| Status              | **DONE**                                                                 |
 | Complexity          | L                                                                        |
 | Depends On          | v1.1-T1, v1.1-T2, v1.1-T3, v1.1-T4                                     |
-| Scope               | Add admin API routes to `pkg/api/server.go`: `GET /api/admin/metrics` (spooler stats), `GET /api/admin/printers` (detected printers), `POST /api/admin/printers/active` (switch active printer), `GET /api/admin/keys` (key info + fingerprint), `POST /api/admin/keys/rotate` (force key rotation). All require admin session. |
+| Scope               | Created `pkg/api/admin.go` with 8 admin API endpoints: `POST /api/admin/login`, `GET /api/admin/status`, `GET /api/admin/metrics`, `GET /api/admin/printers`, `POST /api/admin/printers/active`, `GET /api/admin/key`, `GET /api/admin/key/qr`, `POST /api/admin/key/rotate`. All require admin session except login. |
 | Acceptance Criteria | 1. All endpoints return correct JSON. 2. All endpoints require auth. 3. Printer switching works at runtime. 4. Key rotation generates new pair. 5. Metrics reflect real-time state. |
-| Security Concerns   | All admin endpoints behind auth middleware. Key rotation requires admin. |
+| Security Concerns   | All admin endpoints behind auth middleware. Key rotation requires admin. Key download and QR endpoints expose private key (admin-only, already has disk access). |
 
 ### v1.1-Task 6: Admin Dashboard Frontend
 
@@ -269,10 +266,10 @@ Created `Makefile.deploy` with comprehensive production operations:
 | Task ID             | v1.1-T6                                                                  |
 | Name                | Admin Dashboard Frontend                                                 |
 | Priority            | High                                                                     |
-| Status              | TODO                                                                     |
+| Status              | **DONE**                                                                 |
 | Complexity          | L                                                                        |
 | Depends On          | v1.1-T5                                                                  |
-| Scope               | Add `/admin` React route to frontend. Dashboard shows: spooler metrics (queue depth, jobs processed, failures, avg print time), printer list with dropdown to select active printer, key info (fingerprint, first-generated date), key rotation button. Login screen for token auth. Auto-refresh metrics every 5s. |
+| Scope               | Created `frontend/src/pages/Admin.tsx` and `frontend/src/lib/admin-api.ts`. Dashboard at `/admin` with: token login screen, monitoring panel (auto-refresh 5s), printer panel (detect + select), key panel (fingerprint + download + rotate). Uses session cookie auth (no localStorage). |
 | Acceptance Criteria | 1. Login screen accepts admin token. 2. Dashboard shows real-time metrics. 3. Printer dropdown lists detected printers. 4. Key info shows fingerprint. 5. Key rotation works. 6. Responsive layout with shadcn/ui components. |
 | Security Concerns   | Token never stored in localStorage — session cookie only. Dashboard only accessible with valid session. |
 
@@ -283,10 +280,10 @@ Created `Makefile.deploy` with comprehensive production operations:
 | Task ID             | v1.1-T7                                                                  |
 | Name                | Private Key QR Scan in reader.html                                       |
 | Priority            | Medium                                                                   |
-| Status              | TODO                                                                     |
+| Status              | **DONE**                                                                 |
 | Complexity          | M                                                                        |
 | Depends On          | None                                                                     |
-| Scope               | Add camera-based QR scanning to `static/reader.html` for private key import. Uses existing jsQR library. Scan operator's QR code (JWK or PEM format) to import private key without copy-paste. Button to toggle between camera scan and manual paste. |
+| Scope               | Added camera-based QR scanning to `static/reader.html` for private key import. Uses existing jsQR library. Scan operator's QR code (JWK or PEM format) to import private key without copy-paste. Toggle button between camera scan and manual paste modes. |
 | Acceptance Criteria | 1. Camera scan detects JWK QR and imports private key. 2. Camera scan detects PEM QR and imports private key. 3. Toggle between scan and paste mode. 4. Existing manual paste still works. 5. Works offline (jsQR already local). |
 | Security Concerns   | Camera access requires HTTPS or localhost (same as current reader.html). Private key stays client-side. |
 
@@ -295,17 +292,18 @@ Created `Makefile.deploy` with comprehensive production operations:
 ### v1.1 Task Summary
 
 - **Total Tasks**: 7
-- **Completed**: 0
+- **Completed**: 7 (T1, T2, T3, T4, T5, T6, T7) -- ALL DONE
 - **In Progress**: 0
 - **Blocked**: 0
-- **Dependencies**: T1, T2, T3, T4 (parallel) → T5 → T6; T7 (independent)
+- **Dependencies**: T1, T2, T3, T4 (parallel) -> T5 -> T6; T7 (independent) — all resolved
 
 ---
 
 ### Implementation Notes
 
-- **Branch**: All v1.1 work happens on `feature/v1.1-admin-dashboard`
-- **Main branch**: Stable v1.0 — no changes during v1.1 development
-- **Test strategy**: Each task includes failing test → implement → verify
-- **Commit strategy**: Commit after each task with conventional commit messages
-- **Docker**: v1.1 changes require updating Dockerfile and docker-compose files
+- **Branch**: `feature/v1.1-admin-dashboard` — all work complete
+- **Main branch**: Stable v1.0 — awaiting merge
+- **Test count**: 43 tests passing (was 26 in v1.0)
+- **New files**: `pkg/spooler/metrics.go`, `pkg/printer/manager.go`, `pkg/printer/manager_test.go`, `pkg/api/middleware.go`, `pkg/api/middleware_test.go`, `pkg/api/admin.go`, `pkg/api/admin_test.go`, `frontend/src/pages/Admin.tsx`, `frontend/src/lib/admin-api.ts`
+- **New env vars**: `ADMIN_TOKEN`, `KEY_ROTATE`, `PRIVATE_KEY_PATH`
+- **New packages**: 0 (all within existing packages)

@@ -34,6 +34,7 @@
 
 - **Interface names**: `-er` suffix for single-method interfaces: `Printer`, `Spooler`, `Logger`
 - Multi-method interfaces: descriptive PascalCase: `HTTPHandler`, `KeyManager`
+- **Provider interfaces**: Use `Provider` suffix for interfaces that resolve dependencies at runtime: `PrinterProvider` (returns current active `Printer`)
 
 ### Variables
 
@@ -119,7 +120,7 @@
   ```go
   // GenerateKeyPair creates a new X25519 key pair.
   // Returns the public key in PEM format and logs the private key as a QR code.
-  // The private key is never persisted to disk.
+  // The private key is saved to disk (0600) and only loaded to RAM during first-run QR display.
   func GenerateKeyPair() ([]byte, error)
   ```
 - **Every non-obvious decision in code must have an inline comment explaining *why*** — not *what* (the code says what)
@@ -157,11 +158,13 @@ linters:
 
 - **Never log sensitive data** — no keys, ciphertext, plaintext in logs
 - **Use `crypto/rand`** — never `math/rand` for security-critical randomness
-- **Constant-time comparison** — use `crypto/subtle.ConstantTimeCompare()` for secrets
+- **Constant-time comparison** — use `crypto/subtle.ConstantTimeCompare()` for secrets (admin token, auth tokens)
 - **Zero buffers after use** — implement Burn Protocol with `runtime.KeepAlive()`
 - **Validate all input at boundaries** — HTTP handlers should validate before passing to services
 - **Use `context.Context`** for all operations that may timeout or cancel
 - **Avoid reflection** in security-critical code — it can bypass access controls
+- **Thread-safe metrics** — use `sync/atomic` for counters, `sync.Mutex` for complex state snapshots
+- **PrinterProvider pattern** — spooler resolves printer per-job via `PrinterProvider` interface instead of holding a direct reference, enabling runtime printer switching
 
 ---
 

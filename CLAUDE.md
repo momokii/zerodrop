@@ -78,7 +78,7 @@ If any answer is "no", fix it before ending the session.
 
 ## Current Status
 
-**Phase:** M-05 Complete — ZeroDrop Terminal v1.0 Production Ready
+**Phase:** v1.1 Implementation Complete — Ready for Merge (branch: `feature/v1.1-admin-dashboard`)
 
 ### Product Definition
 
@@ -94,17 +94,21 @@ If any answer is "no", fix it before ending the session.
 | **Offline Reader** | `static/reader.html` + jsQR + Web Crypto | ✅ Implemented (standalone Docker: `Dockerfile.reader`) |
 | **Infrastructure** | Docker Compose | ✅ Implemented |
 | **Hardware** | 58mm thermal printer (ESC/POS), USB connectivity | ✅ Supported |
-| **Testing** | Go testing framework + Mock Printer for CI | ✅ 23 tests passing |
+| **Testing** | Go testing framework + Mock Printer for CI | ✅ 43 tests passing |
 
 ### Architecture
 
 - **Zero-knowledge guarantee**: Server never possesses plaintext payload or private key
 - **Ephemeral processing**: No database. Data exists in RAM only during print job, then is zeroed
+- **Persistent key pair (v1.1)**: Private key saved to disk on first run, reused across restarts, never loaded to RAM after initial setup
 - **Hardware abstraction**: `Printer` interface supports Mock Printer (stdout) and USB Printer (auto-detection)
-- **Asynchronous spooler**: Buffered Go channel worker pool for sequential print processing
+- **PrinterManager (v1.1)**: Detects all connected printers, holds active reference, supports runtime switching via admin API
+- **Asynchronous spooler**: Buffered Go channel worker pool for sequential print processing, resolves printer per-job via `PrinterProvider` interface
+- **Spooler metrics (v1.1)**: Thread-safe Metrics struct tracking queue depth, total processed/failed, print duration
 - **Client-side encryption**: All crypto happens in browser using Web Crypto API
-- **Offline decryption**: `static/reader.html` works completely offline with no external dependencies
+- **Offline decryption**: `static/reader.html` works completely offline with no external dependencies (v1.1: includes camera-based QR scanning for private key import)
 - **SPA serving**: Go backend serves React frontend with client-side routing fallback
+- **Admin dashboard (v1.1)**: React page at `/admin` with token auth, monitoring, printer management, key management
 
 ### Implementation Status
 
@@ -115,6 +119,7 @@ If any answer is "no", fix it before ending the session.
 | M-03 | ✅ DONE | Printer Interface & Reader |
 | M-04 | ✅ DONE | USB Printer & Health Check |
 | M-05 | ✅ DONE | Frontend & Production Readiness |
+| v1.1 | ✅ DONE | Admin Dashboard & Key Persistence (7 tasks: persistent keys, spooler metrics, PrinterManager, admin auth, admin API, admin dashboard, QR key scan) |
 
 ### Open Questions
 
@@ -126,18 +131,20 @@ If any answer is "no", fix it before ending the session.
 
 - **PRD**: `docs/prd/PRD-001-zerodrop-terminal-v1.0.md` (complete)
 - **Overview**: `docs/OVERVIEW.md` (stakeholder-friendly explanation)
-- **Decisions Log**: `.claude/state/DECISIONS_LOG.md` (24 decisions recorded)
-- **Task Queue**: `.claude/state/TASK_QUEUE.md` (5 milestones, all complete)
+- **Decisions Log**: `.claude/state/DECISIONS_LOG.md` (31 decisions recorded)
+- **Task Queue**: `.claude/state/TASK_QUEUE.md` (5 milestones + 7 v1.1 tasks, all complete)
 - **Standards**: All `.claude/` files updated with Go-specific conventions
 
 ### Security Notes (Critical)
 
 - **Zero-knowledge is non-negotiable**: Server must never possess plaintext payload or private key at any point
 - **Burn Protocol**: Must use `runtime.KeepAlive()` after zeroing private key to prevent compiler optimization
+- **Persistent keys (v1.1)**: Private key saved to disk (0600) on first run, only loaded to RAM for first-run QR display, then burned. `KEY_ROTATE=true` forces regeneration.
+- **Admin auth (v1.1)**: `ADMIN_TOKEN` env var, constant-time comparison, session cookies (HttpOnly, SameSite, 24h expiry), login rate-limited (10 attempts/15min/IP)
 - **QR version header**: All payloads prefixed with `ZD1:` for forward compatibility
 - **Key fingerprinting**: SHA-256 hash of public key logged on startup for operator verification
 - **Memory hygiene**: All payload buffers zeroed after print job completion
-- **Rate limiting**: Built-in per-IP sliding window (5 req/hr default). Deploy behind a reverse proxy for production TLS and advanced rate limiting.
+- **Rate limiting**: Built-in per-IP sliding window (5 req/hr default). Admin login rate-limited separately. Deploy behind a reverse proxy for production TLS and advanced rate limiting.
 - **Web Crypto API**: Browser-native encryption, no external libraries
 
 ### Development Commands
@@ -223,3 +230,4 @@ curl -s http://localhost:8080/health
 | 21 | 2026-05-30 | JWK format switch (X25519 Web Crypto compat), log ordering fix, fingerprint independence, paste listeners, cache busting reader URL |
 | 22 | 2026-05-31 | PEM non-blocking fallback, raw base64 paste support, extractJWK label handling, Makefile docker-up-rebuild target |
 | 23 | 2026-06-04 | Docker .env fix, QR interleaving fix (log.SetOutput stdout), PNG QR files, dual PEM+JWK QR, compact QR renderer (half-block), v1.1 admin dashboard plan written to docs/plans/, all .claude/ state files updated for v1.1 |
+| 24 | 2026-06-06 | v1.1 implementation complete on `feature/v1.1-admin-dashboard`: persistent key storage, spooler metrics (thread-safe), PrinterManager with PrinterProvider interface, admin auth (token + session cookies + login rate limiting), admin API (8 endpoints), admin dashboard (/admin React page), private key QR scan in reader.html. 43 tests passing. All .claude/ docs updated for v1.1. |

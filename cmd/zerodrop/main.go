@@ -170,8 +170,9 @@ func main() {
 	// Detect all printers for admin panel
 	pm.Detect()
 
-	// Create spooler with queue size of 10
-	splr := spooler.NewSpooler(10, printImpl)
+	// Create spooler with queue size of 10, using PrinterManager so
+		// admin printer switching takes effect on the next print job
+		splr := spooler.NewSpooler(10, pm)
 
 	// Create API server with printer for health checks
 	server := api.NewServer(cfg, splr.Queue(), printInterface)

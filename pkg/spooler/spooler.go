@@ -11,7 +11,7 @@ import (
 type Spooler struct {
 	queue      chan []byte
 	workerDone chan struct{}
-	printer    Printer
+	getPrinter func() Printer
 	metrics    *Metrics
 }
 
@@ -21,14 +21,28 @@ type Printer interface {
 	IsAvailable() bool
 }
 
-// NewSpooler creates a new spooler with the given queue size and printer
-func NewSpooler(queueSize int, printer Printer) *Spooler {
-	return &Spooler{
+// PrinterProvider returns the current active printer. Used by the spooler
+// to resolve the printer at job time so admin printer switching takes effect.
+type PrinterProvider interface {
+	GetActive() Printer
+}
+
+// NewSpooler creates a new spooler with the given queue size and printer provider.
+// Accepts either a PrinterProvider (e.g., PrinterManager) or a static Printer.
+func NewSpooler(queueSize int, provider interface{}) *Spooler {
+	s := &Spooler{
 		queue:      make(chan []byte, queueSize),
 		workerDone: make(chan struct{}),
-		printer:    printer,
 		metrics:    NewMetrics(),
 	}
+	if pp, ok := provider.(PrinterProvider); ok {
+		s.getPrinter = pp.GetActive
+	} else if p, ok := provider.(Printer); ok {
+		s.getPrinter = func() Printer { return p }
+	} else {
+		panic("NewSpooler: provider must implement Printer or PrinterProvider")
+	}
+	return s
 }
 
 // GetMetrics returns a snapshot of the current spooler metrics.
@@ -64,13 +78,14 @@ func (s *Spooler) processJob(payload []byte) {
 	log.Printf("Processing print job (payload size: %d bytes)", len(payload))
 
 	start := time.Now()
+	printer := s.getPrinter()
 
 	// Retry logic: up to 3 attempts with exponential backoff
 	maxRetries := 3
 	backoff := time.Second
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := s.printer.Print(payload)
+		err := printer.Print(payload)
 		if err == nil {
 			log.Printf("Print job completed successfully")
 			s.metrics.recordSuccess(time.Since(start))
@@ -84,8 +99,11 @@ func (s *Spooler) processJob(payload []byte) {
 		if attempt < maxRetries {
 			log.Printf("Retrying in %v...", backoff)
 
+			// Re-resolve printer in case admin switched it between retries
+			printer = s.getPrinter()
+
 			// If the printer supports reconnection, attempt it before retry.
-			if reconnector, ok := s.printer.(interface{ Reconnect() error }); ok {
+			if reconnector, ok := printer.(interface{ Reconnect() error }); ok {
 				if recErr := reconnector.Reconnect(); recErr != nil {
 					log.Printf("Reconnect before retry failed: %v", recErr)
 				}

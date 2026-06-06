@@ -12,6 +12,7 @@ type Spooler struct {
 	queue      chan []byte
 	workerDone chan struct{}
 	printer    Printer
+	metrics    *Metrics
 }
 
 // Printer interface defines the contract for printing payloads
@@ -26,7 +27,13 @@ func NewSpooler(queueSize int, printer Printer) *Spooler {
 		queue:      make(chan []byte, queueSize),
 		workerDone: make(chan struct{}),
 		printer:    printer,
+		metrics:    NewMetrics(),
 	}
+}
+
+// GetMetrics returns a snapshot of the current spooler metrics.
+func (s *Spooler) GetMetrics() Metrics {
+	return s.metrics.Snapshot()
 }
 
 // Start begins processing print jobs from the queue
@@ -45,6 +52,7 @@ func (s *Spooler) Start(ctx context.Context) {
 					log.Println("Spooler worker shutting down...")
 					return
 				}
+				s.metrics.updateDepth(len(s.queue))
 				s.processJob(payload)
 			}
 		}
@@ -55,6 +63,8 @@ func (s *Spooler) Start(ctx context.Context) {
 func (s *Spooler) processJob(payload []byte) {
 	log.Printf("Processing print job (payload size: %d bytes)", len(payload))
 
+	start := time.Now()
+
 	// Retry logic: up to 3 attempts with exponential backoff
 	maxRetries := 3
 	backoff := time.Second
@@ -63,6 +73,7 @@ func (s *Spooler) processJob(payload []byte) {
 		err := s.printer.Print(payload)
 		if err == nil {
 			log.Printf("Print job completed successfully")
+			s.metrics.recordSuccess(time.Since(start))
 			// Memory zeroing: clear the payload buffer
 			s.zeroPayload(payload)
 			return
@@ -74,7 +85,6 @@ func (s *Spooler) processJob(payload []byte) {
 			log.Printf("Retrying in %v...", backoff)
 
 			// If the printer supports reconnection, attempt it before retry.
-			// This handles USB printer re-enumeration between retries.
 			if reconnector, ok := s.printer.(interface{ Reconnect() error }); ok {
 				if recErr := reconnector.Reconnect(); recErr != nil {
 					log.Printf("Reconnect before retry failed: %v", recErr)
@@ -84,6 +94,7 @@ func (s *Spooler) processJob(payload []byte) {
 			time.Sleep(backoff)
 			backoff *= 2 // Exponential backoff
 		} else {
+			s.metrics.recordFailure()
 			log.Printf("Print job failed after %d attempts", maxRetries)
 		}
 	}

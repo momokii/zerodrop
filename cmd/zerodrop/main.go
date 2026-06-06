@@ -115,11 +115,15 @@ func main() {
 	// Create printer based on configuration
 	var printImpl printer.Printer
 	var printInterface interface{} // For extended interfaces (HealthChecker, etc.)
+	var pm *printer.PrinterManager
 
 	switch cfg.PrinterType {
 	case "mock":
 		printImpl = printer.NewMockPrinter()
 		printInterface = printImpl
+		pm = printer.NewPrinterManager(printImpl, printer.PrinterInfo{
+			ID: "mock", Name: "Mock Printer (stdout)", Type: "mock",
+		})
 		logger.Info("Mock printer initialized", nil)
 
 	case "usb":
@@ -136,28 +140,35 @@ func main() {
 				log.Println("Falling back to Mock Printer...")
 				printImpl = printer.NewMockPrinter()
 				printInterface = printImpl
+				pm = printer.NewPrinterManager(printImpl, printer.PrinterInfo{
+					ID: "mock", Name: "Mock Printer (stdout)", Type: "mock",
+				})
 			} else {
 				printImpl = rawPrinter
 				printInterface = rawPrinter
+				devicePath := rawPrinter.GetDevicePath()
+				pm = printer.NewPrinterManager(printImpl, printer.PrinterInfo{
+					ID: devicePath, Name: "Raw USB Printer", Type: "usb", Device: devicePath,
+				})
 				log.Printf("Raw USB printer initialized at %s (ep %s)",
-					rawPrinter.GetDevicePath(), rawPrinter.HealthCheck()["endpoint"])
+					devicePath, rawPrinter.HealthCheck()["endpoint"])
 			}
 		} else {
 			printImpl = usbPrinter
 			printInterface = usbPrinter
-			log.Printf("USB printer initialized at %s", usbPrinter.GetDevicePath())
-
-			// Show detected printers info
-			printers := printer.DetectAvailablePrinters()
-			log.Printf("Detected %d thermal printer device(s)", len(printers))
-			for i, p := range printers {
-				log.Printf("  %d. %s - %s", i+1, p["path"], p["model"])
-			}
+			devicePath := usbPrinter.GetDevicePath()
+			pm = printer.NewPrinterManager(printImpl, printer.PrinterInfo{
+				ID: devicePath, Name: "USB Printer", Type: "usb", Device: devicePath,
+			})
+			log.Printf("USB printer initialized at %s", devicePath)
 		}
 
 	default:
 		log.Fatalf("Unknown printer type: %s", cfg.PrinterType)
 	}
+
+	// Detect all printers for admin panel
+	pm.Detect()
 
 	// Create spooler with queue size of 10
 	splr := spooler.NewSpooler(10, printImpl)

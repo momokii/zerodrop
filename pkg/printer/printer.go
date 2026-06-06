@@ -21,3 +21,11 @@ type Reconnector interface {
 	// Reconnect attempts to reconnect to the printer
 	Reconnect() error
 }
+
+// PrinterInfo describes a detected printer.
+type PrinterInfo struct {
+	ID     string `json:"id"`     // Unique identifier (device path or "mock")
+	Name   string `json:"name"`   // Human-readable model name
+	Type   string `json:"type"`   // "usb" or "mock"
+	Device string `json:"device"` // Device path (e.g., /dev/usb/lp0)
+}

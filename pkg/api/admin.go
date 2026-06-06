@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/zerodrop/terminal/pkg/printer"
@@ -23,6 +24,56 @@ type AdminHandler struct {
 	startTime      time.Time
 	keyFingerprint string
 	keyGeneratedAt time.Time
+	loginLimiter   *loginRateLimiter
+}
+
+// loginRateLimiter prevents brute-force attacks on the admin login endpoint.
+type loginRateLimiter struct {
+	mu       sync.Mutex
+	attempts map[string]*loginAttempts
+	limit    int
+	window   time.Duration
+}
+
+type loginAttempts struct {
+	count    int
+	windowStart time.Time
+}
+
+func newLoginRateLimiter() *loginRateLimiter {
+	rl := &loginRateLimiter{
+		attempts: make(map[string]*loginAttempts),
+		limit:    10,
+		window:   15 * time.Minute,
+	}
+	// Cleanup goroutine
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			rl.mu.Lock()
+			now := time.Now()
+			for ip, a := range rl.attempts {
+				if now.Sub(a.windowStart) > rl.window {
+					delete(rl.attempts, ip)
+				}
+			}
+			rl.mu.Unlock()
+		}
+	}()
+	return rl
+}
+
+func (rl *loginRateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	now := time.Now()
+	a, ok := rl.attempts[ip]
+	if !ok || now.Sub(a.windowStart) > rl.window {
+		rl.attempts[ip] = &loginAttempts{count: 1, windowStart: now}
+		return true
+	}
+	a.count++
+	return a.count <= rl.limit
 }
 
 // NewAdminHandler creates a new admin handler.
@@ -41,10 +92,17 @@ func NewAdminHandler(
 		startTime:      time.Now(),
 		keyFingerprint: keyFingerprint,
 		keyGeneratedAt: time.Now(),
+		loginLimiter:   newLoginRateLimiter(),
 	}
 }
 
 func (h *AdminHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
+	ip := extractIP(r.RemoteAddr)
+	if !h.loginLimiter.allow(ip) {
+		http.Error(w, `{"error":"too many login attempts"}`, http.StatusTooManyRequests)
+		return
+	}
+
 	var req struct {
 		Token string `json:"token"`
 	}

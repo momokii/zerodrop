@@ -8,7 +8,7 @@ import (
 )
 
 func TestSessionStoreLogin(t *testing.T) {
-	store := NewSessionStore("test-token", 24*time.Hour)
+	store := NewSessionStore("test-token", 24*time.Hour, 5*time.Minute)
 
 	// Correct token
 	session, ok := store.Login("test-token")
@@ -27,7 +27,7 @@ func TestSessionStoreLogin(t *testing.T) {
 }
 
 func TestSessionStoreValid(t *testing.T) {
-	store := NewSessionStore("test-token", 24*time.Hour)
+	store := NewSessionStore("test-token", 24*time.Hour, 5*time.Minute)
 
 	// No session
 	if store.Valid("nonexistent") {
@@ -50,7 +50,7 @@ func TestSessionStoreValid(t *testing.T) {
 }
 
 func TestSessionStoreCleanup(t *testing.T) {
-	store := NewSessionStore("test-token", 24*time.Hour)
+	store := NewSessionStore("test-token", 24*time.Hour, 5*time.Minute)
 
 	session1, _ := store.Login("test-token")
 	store.mu.Lock()
@@ -70,7 +70,7 @@ func TestSessionStoreCleanup(t *testing.T) {
 }
 
 func TestRequireAuth(t *testing.T) {
-	store := NewSessionStore("test-token", 24*time.Hour)
+	store := NewSessionStore("test-token", 24*time.Hour, 5*time.Minute)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -101,7 +101,7 @@ func TestRequireAuth(t *testing.T) {
 }
 
 func TestConstantTimeComparison(t *testing.T) {
-	store := NewSessionStore("a-longer-admin-token-for-testing", 24*time.Hour)
+	store := NewSessionStore("a-longer-admin-token-for-testing", 24*time.Hour, 5*time.Minute)
 
 	// Various wrong tokens should all fail
 	wrongTokens := []string{"", "wrong", "a-longer-admin-token-for-testin", "a-longer-admin-token-for-testing "}
@@ -114,5 +114,63 @@ func TestConstantTimeComparison(t *testing.T) {
 	// Exact match should succeed
 	if _, ok := store.Login("a-longer-admin-token-for-testing"); !ok {
 		t.Fatal("expected login to succeed with exact token")
+	}
+}
+
+func TestGrantKeyAccess(t *testing.T) {
+	store := NewSessionStore("test-token", 24*time.Hour, 5*time.Minute)
+	session, _ := store.Login("test-token")
+
+	if store.HasKeyGrant(session) {
+		t.Fatal("expected no grant before GrantKeyAccess")
+	}
+
+	store.GrantKeyAccess(session)
+	if !store.HasKeyGrant(session) {
+		t.Fatal("expected grant after GrantKeyAccess")
+	}
+}
+
+func TestHasKeyGrantExpired(t *testing.T) {
+	store := NewSessionStore("test-token", 24*time.Hour, 5*time.Minute)
+	session, _ := store.Login("test-token")
+
+	store.GrantKeyAccess(session)
+	store.mu.Lock()
+	store.keyGrants[session] = time.Now().Add(-time.Minute)
+	store.mu.Unlock()
+
+	if store.HasKeyGrant(session) {
+		t.Fatal("expected expired grant to be invalid")
+	}
+}
+
+func TestRequireKeyGrant(t *testing.T) {
+	store := NewSessionStore("test-token", 24*time.Hour, 5*time.Minute)
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	protected := store.RequireKeyGrant(handler)
+	session, _ := store.Login("test-token")
+
+	// Without grant
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Session-Token", session)
+	rec := httptest.NewRecorder()
+	protected.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 without grant, got %d", rec.Code)
+	}
+
+	// With grant
+	store.GrantKeyAccess(session)
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Session-Token", session)
+	rec = httptest.NewRecorder()
+	protected.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 with grant, got %d", rec.Code)
 	}
 }

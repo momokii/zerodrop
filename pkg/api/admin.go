@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -146,18 +147,7 @@ func (h *AdminHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
-	// Extract the session token from the same sources as RequireAuth
-	session := r.Header.Get("X-Session-Token")
-	if session == "" {
-		if ah := r.Header.Get("Authorization"); len(ah) > 7 && ah[:7] == "Bearer " {
-			session = ah[7:]
-		}
-	}
-	if session == "" {
-		if c, err := r.Cookie("zerodrop_admin_session"); err == nil {
-			session = c.Value
-		}
-	}
+	session := extractSession(r)
 	if session != "" {
 		h.sessions.Logout(session)
 	}
@@ -185,8 +175,9 @@ func (h *AdminHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"version":        "1.1.0",
-		"uptime_seconds": time.Since(h.startTime).Seconds(),
+		"version":               "1.1.0",
+		"uptime_seconds":        time.Since(h.startTime).Seconds(),
+		"key_grant_ttl_seconds": h.sessions.keyGrantTTL.Seconds(),
 		"key": map[string]interface{}{
 			"fingerprint":        h.keyFingerprint,
 			"generated_at":       generatedAt.Format(time.RFC3339),
@@ -235,6 +226,40 @@ func (h *AdminHandler) handleSetActivePrinter(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (h *AdminHandler) handleKeyGrant(w http.ResponseWriter, r *http.Request) {
+	session := extractSession(r)
+	if session == "" || !h.sessions.Valid(session) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	var req struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		return
+	}
+
+	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(h.sessions.adminKey)) != 1 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid token"})
+		return
+	}
+
+	h.sessions.GrantKeyAccess(session)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":      "ok",
+		"ttl_seconds": h.sessions.keyGrantTTL.Seconds(),
+	})
 }
 
 func (h *AdminHandler) handleKeyDownload(w http.ResponseWriter, r *http.Request) {

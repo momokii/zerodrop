@@ -26,7 +26,7 @@ func setupAdminTest(t *testing.T) (*AdminHandler, string) {
 		ID: "mock", Name: "Mock Printer", Type: "mock",
 	})
 
-	sessions := NewSessionStore("test-admin-token", 24*time.Hour)
+	sessions := NewSessionStore("test-admin-token", 24*time.Hour, 5*time.Minute)
 	handler := NewAdminHandler(
 		sessions, splr, pm,
 		filepath.Join(tmpDir, "public_key.pem"),
@@ -145,6 +145,63 @@ func TestAdminListPrinters(t *testing.T) {
 	printers, ok := resp["printers"].([]interface{})
 	if !ok || len(printers) == 0 {
 		t.Error("expected at least one printer (mock)")
+	}
+}
+
+func TestAdminKeyGrant_Success(t *testing.T) {
+	handler, _ := setupAdminTest(t)
+	session, _ := handler.sessions.Login("test-admin-token")
+
+	body := `{"token":"test-admin-token"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/key/grant", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Session-Token", session)
+	rec := httptest.NewRecorder()
+
+	handler.handleKeyGrant(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if !handler.sessions.HasKeyGrant(session) {
+		t.Fatal("expected session to have key grant after successful grant")
+	}
+}
+
+func TestAdminKeyGrant_WrongToken(t *testing.T) {
+	handler, _ := setupAdminTest(t)
+	session, _ := handler.sessions.Login("test-admin-token")
+
+	body := `{"token":"wrong-token"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/key/grant", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Session-Token", session)
+	rec := httptest.NewRecorder()
+
+	handler.handleKeyGrant(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+
+	if handler.sessions.HasKeyGrant(session) {
+		t.Fatal("expected no key grant after wrong token")
+	}
+}
+
+func TestAdminKeyGrant_Unauthenticated(t *testing.T) {
+	handler, _ := setupAdminTest(t)
+
+	body := `{"token":"test-admin-token"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/key/grant", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.handleKeyGrant(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated request, got %d", rec.Code)
 	}
 }
 

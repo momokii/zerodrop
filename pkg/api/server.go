@@ -142,7 +142,7 @@ func (s *Server) EnableAdmin(
 	printerMgr *printer.PrinterManager,
 	publicKeyPath, privateKeyPath, keyFingerprint string,
 ) {
-	s.sessions = NewSessionStore(s.config.AdminToken, s.config.AdminSessionTTL)
+	s.sessions = NewSessionStore(s.config.AdminToken, s.config.AdminSessionTTL, s.config.KeyGrantTTL)
 	s.admin = NewAdminHandler(
 		s.sessions, splr, printerMgr,
 		publicKeyPath, privateKeyPath, keyFingerprint,
@@ -169,10 +169,8 @@ func (s *Server) FinalizeRoutes() {
 func (s *Server) setupAdminRoutes() {
 	adminRouter := s.apiRouter.PathPrefix("/admin").Subrouter()
 
-	// Login is public (no auth required)
 	adminRouter.Handle("/login", http.HandlerFunc(s.admin.handleLogin)).Methods(http.MethodPost)
 
-	// All other admin routes require auth
 	adminAuth := adminRouter.NewRoute().Subrouter()
 	adminAuth.Use(s.sessions.RequireAuth)
 	adminAuth.Handle("/logout", http.HandlerFunc(s.admin.handleLogout)).Methods(http.MethodPost)
@@ -180,9 +178,11 @@ func (s *Server) setupAdminRoutes() {
 	adminAuth.Handle("/metrics", http.HandlerFunc(s.admin.handleMetrics)).Methods(http.MethodGet)
 	adminAuth.Handle("/printers", http.HandlerFunc(s.admin.handleListPrinters)).Methods(http.MethodGet)
 	adminAuth.Handle("/printers/active", http.HandlerFunc(s.admin.handleSetActivePrinter)).Methods(http.MethodPost)
-	adminAuth.Handle("/key", http.HandlerFunc(s.admin.handleKeyDownload)).Methods(http.MethodGet)
-	adminAuth.Handle("/key/qr", http.HandlerFunc(s.admin.handleKeyQRDownload)).Methods(http.MethodGet)
-	adminAuth.Handle("/key/rotate", http.HandlerFunc(s.admin.handleKeyRotate)).Methods(http.MethodPost)
+
+	adminAuth.Handle("/key/grant", http.HandlerFunc(s.admin.handleKeyGrant)).Methods(http.MethodPost)
+	adminAuth.Handle("/key", s.sessions.RequireKeyGrant(http.HandlerFunc(s.admin.handleKeyDownload))).Methods(http.MethodGet)
+	adminAuth.Handle("/key/qr", s.sessions.RequireKeyGrant(http.HandlerFunc(s.admin.handleKeyQRDownload))).Methods(http.MethodGet)
+	adminAuth.Handle("/key/rotate", s.sessions.RequireKeyGrant(http.HandlerFunc(s.admin.handleKeyRotate))).Methods(http.MethodPost)
 }
 
 // setupRoutes configures all HTTP routes

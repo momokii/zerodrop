@@ -4,26 +4,32 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
 )
 
-// SessionStore manages admin authentication sessions.
+// SessionStore manages admin authentication sessions and key access grants.
 type SessionStore struct {
-	mu       sync.RWMutex
-	sessions map[string]time.Time // token -> expiry
-	adminKey string
-	maxAge   time.Duration
+	mu          sync.RWMutex
+	sessions    map[string]time.Time // token -> expiry
+	keyGrants   map[string]time.Time
+	adminKey    string
+	maxAge      time.Duration
+	keyGrantTTL time.Duration
 }
 
 // NewSessionStore creates a new session store with the given admin token
 // and session lifetime. maxAge controls how long sessions remain valid.
-func NewSessionStore(adminToken string, maxAge time.Duration) *SessionStore {
+// keyGrantTTL controls how long a key access grant lasts before re-auth.
+func NewSessionStore(adminToken string, maxAge, keyGrantTTL time.Duration) *SessionStore {
 	return &SessionStore{
-		sessions: make(map[string]time.Time),
-		adminKey: adminToken,
-		maxAge:   maxAge,
+		sessions:    make(map[string]time.Time),
+		keyGrants:   make(map[string]time.Time),
+		adminKey:    adminToken,
+		maxAge:      maxAge,
+		keyGrantTTL: keyGrantTTL,
 	}
 }
 
@@ -81,6 +87,66 @@ func (s *SessionStore) Cleanup() {
 	}
 }
 
+// GrantKeyAccess marks a session as having key access for the configured TTL.
+func (s *SessionStore) GrantKeyAccess(sessionToken string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.keyGrants[sessionToken] = time.Now().Add(s.keyGrantTTL)
+}
+
+// HasKeyGrant checks if a session has a valid, non-expired key access grant.
+func (s *SessionStore) HasKeyGrant(sessionToken string) bool {
+	s.mu.RLock()
+	expiry, ok := s.keyGrants[sessionToken]
+	s.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	if time.Now().After(expiry) {
+		s.mu.Lock()
+		delete(s.keyGrants, sessionToken)
+		s.mu.Unlock()
+		return false
+	}
+	return true
+}
+
+// RequireKeyGrant is middleware that checks for a valid key access grant.
+// The session token is extracted from the same sources as RequireAuth.
+// Returns 403 if no valid grant exists.
+func (s *SessionStore) RequireKeyGrant(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session := extractSession(r)
+		if session == "" || !s.HasKeyGrant(session) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "key_access_denied",
+				"message": "Re-authenticate at POST /api/admin/key/grant to access key material.",
+			})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// extractSession extracts the session token from an HTTP request.
+// Tried in order: X-Session-Token header, Authorization: Bearer, cookie.
+func extractSession(r *http.Request) string {
+	session := r.Header.Get("X-Session-Token")
+	if session == "" {
+		if ah := r.Header.Get("Authorization"); len(ah) > 7 && ah[:7] == "Bearer " {
+			session = ah[7:]
+		}
+	}
+	if session == "" {
+		if c, err := r.Cookie("zerodrop_admin_session"); err == nil {
+			session = c.Value
+		}
+	}
+	return session
+}
+
 func generateToken() string {
 	b := make([]byte, 32)
 	rand.Read(b)
@@ -94,21 +160,11 @@ func generateToken() string {
 //   3. zerodrop_admin_session cookie (backward compatibility)
 func (s *SessionStore) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		session := r.Header.Get("X-Session-Token")
-		if session == "" {
-			// Try Authorization: Bearer header
-			if ah := r.Header.Get("Authorization"); len(ah) > 7 && ah[:7] == "Bearer " {
-				session = ah[7:]
-			}
-		}
-		if session == "" {
-			// Fall back to cookie
-			if c, err := r.Cookie("zerodrop_admin_session"); err == nil {
-				session = c.Value
-			}
-		}
+		session := extractSession(r)
 		if session == "" || !s.Valid(session) {
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 			return
 		}
 		next.ServeHTTP(w, r)

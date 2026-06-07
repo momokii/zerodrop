@@ -8,6 +8,7 @@ let sessionToken = "";
 export interface AdminStatus {
   version: string;
   uptime_seconds: number;
+  key_grant_ttl_seconds: number;
   key: {
     fingerprint: string;
     generated_at: string;
@@ -108,22 +109,51 @@ export async function rotateKey(): Promise<{ message: string }> {
   return res.json();
 }
 
+export async function keyGrant(token: string): Promise<{ ttl_seconds: number }> {
+	const res = await fetch(`${API_BASE}/key/grant`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...authHeaders() },
+		body: JSON.stringify({ token }),
+	});
+	if (!res.ok) {
+		if (res.status === 401) throw new Error("Invalid token");
+		if (res.status === 429) throw new Error("Too many attempts");
+		throw new Error("Failed to grant key access");
+	}
+	return res.json();
+}
+
+export async function downloadPrivateKey(): Promise<{ blob: Blob; filename: string }> {
+	const res = await fetch(`${API_BASE}/key`, { headers: authHeaders() });
+	if (!res.ok) {
+		if (res.status === 403) throw new Error("KEY_ACCESS_DENIED");
+		throw new Error("Failed to download private key");
+	}
+	const blob = await res.blob();
+	const disposition = res.headers.get("Content-Disposition") || 'attachment; filename="private_key.pem"';
+	const match = disposition.match(/filename="?(.+?)"?$/);
+	const filename = match ? match[1] : "private_key.pem";
+	return { blob, filename };
+}
+
+export async function fetchKeyQRUrl(file: string): Promise<string> {
+	const res = await fetch(`${API_BASE}/key/qr?file=${file}`, { headers: authHeaders() });
+	if (!res.ok) {
+		if (res.status === 403) throw new Error("KEY_ACCESS_DENIED");
+		throw new Error("Failed to load QR image");
+	}
+	const blob = await res.blob();
+	return URL.createObjectURL(blob);
+}
+
 export async function adminLogout(): Promise<void> {
-  try {
-    await fetch(`${API_BASE}/logout`, {
-      method: "POST",
-      headers: authHeaders(),
-    });
-  } catch {
-    // Server might be unreachable — clear local state anyway
-  }
-  sessionToken = "";
-}
-
-export function getKeyDownloadUrl(): string {
-  return `${API_BASE}/key`;
-}
-
-export function getKeyQRUrl(file: string): string {
-  return `${API_BASE}/key/qr?file=${file}`;
+	try {
+		await fetch(`${API_BASE}/logout`, {
+			method: "POST",
+			headers: authHeaders(),
+		});
+	} catch {
+		// Server might be unreachable — clear local state anyway
+	}
+	sessionToken = "";
 }

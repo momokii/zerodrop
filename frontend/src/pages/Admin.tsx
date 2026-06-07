@@ -12,8 +12,9 @@ import {
   fetchPrinters,
   setActivePrinter,
   rotateKey,
-  getKeyDownloadUrl,
-  getKeyQRUrl,
+  keyGrant,
+  downloadPrivateKey,
+  fetchKeyQRUrl,
   type AdminStatus,
   type SpoolerMetrics,
   type PrinterListResponse,
@@ -40,6 +41,20 @@ function formatElapsed(ms: number): string {
   return "just now";
 }
 
+function formatDuration(totalSeconds: number): string {
+  if (totalSeconds >= 3600) {
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    return `${h}h ${m}m`;
+  }
+  if (totalSeconds >= 60) {
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m}m ${s}s`;
+  }
+  return `${totalSeconds}s`;
+}
+
 export default function Admin() {
   const [authenticated, setAuthenticated] = useState(false);
   const [token, setToken] = useState("");
@@ -49,8 +64,31 @@ export default function Admin() {
   const [printers, setPrinters] = useState<PrinterListResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [sessionChecking, setSessionChecking] = useState(true);
-  const [qrModal, setQrModal] = useState<{ url: string; label: string } | null>(null);
+  const [keyGrantedAt, setKeyGrantedAt] = useState(0);
+  const [keyGrantTTL, setKeyGrantTTL] = useState(300);
+  const [now, setNow] = useState(Date.now());
+  const [qrModal, setQrModal] = useState<{ url: string; label: string; file: string } | null>(null);
   const [rotateConfirm, setRotateConfirm] = useState(false);
+  const [showKeyGrantModal, setShowKeyGrantModal] = useState(false);
+  const [keyGrantToken, setKeyGrantToken] = useState("");
+  const [keyGrantError, setKeyGrantError] = useState("");
+  const [keyGrantLoading, setKeyGrantLoading] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  function isKeyGrantValid(): boolean {
+    if (keyGrantedAt === 0) return false;
+    return now - keyGrantedAt < keyGrantTTL * 1000;
+  }
+
+  function keyGrantRemainingMs(): number {
+    if (keyGrantedAt === 0) return 0;
+    const elapsed = now - keyGrantedAt;
+    return Math.max(0, keyGrantTTL * 1000 - elapsed);
+  }
 
   const handleLogin = async () => {
     setError("");
@@ -81,6 +119,7 @@ export default function Admin() {
         fetchPrinters(),
       ]);
       setStatus(s);
+      setKeyGrantTTL(s.key_grant_ttl_seconds);
       setMetrics(m);
       setPrinters(p);
     } catch (e) {
@@ -105,6 +144,7 @@ export default function Admin() {
         const s = await fetchStatus();
         const [m, p] = await Promise.all([fetchMetrics(), fetchPrinters()]);
         setStatus(s);
+        setKeyGrantTTL(s.key_grant_ttl_seconds);
         setMetrics(m);
         setPrinters(p);
         setAuthenticated(true);
@@ -142,14 +182,84 @@ export default function Admin() {
     }
   };
 
+  const handleKeyGrantSubmit = async () => {
+    setKeyGrantError("");
+    setKeyGrantLoading(true);
+    try {
+      const result = await keyGrant(keyGrantToken);
+      setKeyGrantedAt(Date.now());
+      setKeyGrantTTL(result.ttl_seconds);
+      setShowKeyGrantModal(false);
+      setKeyGrantToken("");
+    } catch (e) {
+      if (e instanceof Error && e.message === "Invalid token") {
+        setKeyGrantError("Invalid admin token.");
+      } else {
+        setKeyGrantError("Failed to grant key access. Check your token.");
+      }
+    } finally {
+      setKeyGrantLoading(false);
+    }
+  };
+
+  const requireKeyGrant = (): boolean => {
+    if (isKeyGrantValid()) return true;
+    setShowKeyGrantModal(true);
+    return false;
+  };
+
+  const handleDownloadKey = async () => {
+    if (!requireKeyGrant()) return;
+    setError("");
+    try {
+      const { blob, filename } = await downloadPrivateKey();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      if (e instanceof Error && e.message === "KEY_ACCESS_DENIED") {
+        setKeyGrantedAt(0);
+        setShowKeyGrantModal(true);
+      } else {
+        setError("Failed to download private key.");
+      }
+    }
+  };
+
+  const handleViewQR = async (file: string, label: string) => {
+    if (!requireKeyGrant()) return;
+    setError("");
+    try {
+      const url = await fetchKeyQRUrl(file);
+      setQrModal({ url, label, file });
+    } catch (e) {
+      if (e instanceof Error && e.message === "KEY_ACCESS_DENIED") {
+        setKeyGrantedAt(0);
+        setShowKeyGrantModal(true);
+      } else {
+        setError("Failed to load QR image.");
+      }
+    }
+  };
+
   const handleRotateKey = async () => {
+    if (!requireKeyGrant()) return;
     setRotateConfirm(false);
     setLoading(true);
     try {
       const result = await rotateKey();
       setError(result.message);
-    } catch {
-      setError("Failed to rotate key.");
+      setKeyGrantedAt(0);
+    } catch (e) {
+      if (e instanceof Error && e.message === "KEY_ACCESS_DENIED") {
+        setKeyGrantedAt(0);
+        setShowKeyGrantModal(true);
+      } else {
+        setError("Failed to rotate key.");
+      }
     } finally {
       setLoading(false);
     }
@@ -360,13 +470,24 @@ export default function Admin() {
                     </span>
                   </div>
                   <div className="space-y-2 pt-2">
+                    <div className={`text-xs rounded-md p-2 mb-1 ${
+                      isKeyGrantValid()
+                        ? "text-green-700 bg-green-50 border border-green-200"
+                        : "text-amber-700 bg-amber-50 border border-amber-200"
+                    }`}>
+                      {isKeyGrantValid() ? (
+                        <>Key Access: Granted — expires in {formatDuration(Math.ceil(keyGrantRemainingMs() / 1000))}</>
+                      ) : (
+                        <>Key Access: None — download, QR, and rotate require a grant</>
+                      )}
+                    </div>
                     {status.key.private_key_on_disk && (
                       <>
                         <Button
                           variant="outline"
                           size="sm"
                           className="w-full"
-                          onClick={() => window.open(getKeyDownloadUrl(), "_blank")}
+                          onClick={handleDownloadKey}
                         >
                           Download Private Key (PEM)
                         </Button>
@@ -375,7 +496,7 @@ export default function Admin() {
                             variant="outline"
                             size="sm"
                             className="flex-1"
-                            onClick={() => setQrModal({ url: getKeyQRUrl("private_key_jwk_qr.png"), label: "Private Key (JWK)" })}
+                            onClick={() => handleViewQR("private_key_jwk_qr.png", "Private Key (JWK)")}
                           >
                             QR (JWK)
                           </Button>
@@ -383,7 +504,7 @@ export default function Admin() {
                             variant="outline"
                             size="sm"
                             className="flex-1"
-                            onClick={() => setQrModal({ url: getKeyQRUrl("private_key_qr.png"), label: "Private Key (PEM)" })}
+                            onClick={() => handleViewQR("private_key_qr.png", "Private Key (PEM)")}
                           >
                             QR (PEM)
                           </Button>
@@ -456,11 +577,69 @@ export default function Admin() {
         </div>
       )}
 
+      {/* Key Grant (Re-auth) Modal */}
+      {showKeyGrantModal && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+          onClick={() => { setShowKeyGrantModal(false); setKeyGrantToken(""); setKeyGrantError(""); }}
+        >
+          <div
+            className="bg-white rounded-xl p-6 max-w-sm mx-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold">Grant Key Access</h3>
+              <button
+                className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+                onClick={() => { setShowKeyGrantModal(false); setKeyGrantToken(""); setKeyGrantError(""); }}
+              >
+                &times;
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              This operation requires elevated access. Enter your admin token to grant temporary key access ({formatDuration(keyGrantTTL)}). The server is configured with <code>KEY_GRANT_TTL={formatDuration(keyGrantTTL)}</code>.
+            </p>
+            {keyGrantError && (
+              <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-2 mb-3">
+                {keyGrantError}
+              </div>
+            )}
+            <input
+              type="password"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter admin token"
+              value={keyGrantToken}
+              onChange={(e) => setKeyGrantToken(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleKeyGrantSubmit()}
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={() => { setShowKeyGrantModal(false); setKeyGrantToken(""); setKeyGrantError(""); }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1"
+                onClick={handleKeyGrantSubmit}
+                disabled={keyGrantLoading || !keyGrantToken}
+              >
+                {keyGrantLoading ? "Granting..." : "Grant Access"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* QR Code Modal Overlay */}
       {qrModal && (
         <div
           className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-          onClick={() => setQrModal(null)}
+          onClick={() => { setQrModal(null); if (qrModal.url.startsWith("blob:")) URL.revokeObjectURL(qrModal.url); }}
         >
           <div
             className="bg-white rounded-xl p-6 max-w-sm mx-4 shadow-2xl"
@@ -470,7 +649,7 @@ export default function Admin() {
               <h3 className="text-sm font-semibold">{qrModal.label}</h3>
               <button
                 className="text-gray-400 hover:text-gray-600 text-lg leading-none"
-                onClick={() => setQrModal(null)}
+                onClick={() => { setQrModal(null); if (qrModal.url.startsWith("blob:")) URL.revokeObjectURL(qrModal.url); }}
               >
                 &times;
               </button>
@@ -480,6 +659,19 @@ export default function Admin() {
               alt={qrModal.label}
               className="w-full h-auto rounded"
             />
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full mt-4"
+              onClick={() => {
+                const a = document.createElement("a");
+                a.href = qrModal.url;
+                a.download = qrModal.file;
+                a.click();
+              }}
+            >
+              Download PNG
+            </Button>
           </div>
         </div>
       )}

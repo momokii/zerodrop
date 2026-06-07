@@ -47,6 +47,11 @@ type Config struct {
 
 	// PrivateKeyPath is where the private key PEM is stored.
 	PrivateKeyPath string
+
+	// KeyGrantTTL is how long a key access grant lasts before the admin
+	// must re-authenticate to view/download private key material.
+	// Default: 5m.
+	KeyGrantTTL time.Duration
 }
 
 // DefaultConfig returns a configuration with default values
@@ -184,6 +189,20 @@ func LoadFromEnv() (*Config, error) {
 		config.PrivateKeyPath = val
 	} else {
 		config.PrivateKeyPath = filepath.Join(filepath.Dir(config.PublicKeyPath), "private_key.pem")
+	}
+
+	// Optional: KEY_GRANT_TTL — how long key access grant lasts (default: 5m)
+	if val := os.Getenv("KEY_GRANT_TTL"); val != "" {
+		ttl, err := time.ParseDuration(val)
+		if err != nil {
+			return nil, fmt.Errorf("KEY_GRANT_TTL must be a valid duration (e.g. 5m, 10m, 30s): %w", err)
+		}
+		if ttl <= 0 {
+			return nil, fmt.Errorf("KEY_GRANT_TTL must be positive (got: %s)", val)
+		}
+		config.KeyGrantTTL = ttl
+	} else {
+		config.KeyGrantTTL = 5 * time.Minute
 	}
 
 	return config, nil

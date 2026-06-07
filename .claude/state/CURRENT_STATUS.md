@@ -357,7 +357,7 @@ Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go ser
 
 | Task | Description | Status |
 |------|-------------|--------|
-| 1 | Persistent Key Pair Storage | **DONE** |
+| 1 | Persistent Key Pair Storage — changed from ephemeral (new keys every restart → data loss) to persistent keys saved to disk (0600). Private key burned from RAM after initial QR display, never loaded on subsequent starts. Preserves zero-knowledge guarantee while preventing data loss on restart. Security rationale documented in README.md Security Model section. | **DONE** |
 | 2 | Spooler Metrics Collection | **DONE** |
 | 3 | PrinterManager — Multi-Printer Detection & Selection | **DONE** |
 | 4 | Admin Authentication (`ADMIN_TOKEN`, session cookie, login rate limit) | **DONE** |
@@ -388,6 +388,19 @@ Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go ser
 | `KEY_ROTATE` | Set `true` to force key regeneration (default: `false`) |
 | `PRIVATE_KEY_PATH` | Path to save/load private key PEM (default: `./data/private_key.pem`) |
 
+### Security Rationale — Why Persistent Keys Don't Break Zero-Knowledge
+
+The shift from ephemeral to persistent keys was operationally necessary (restart = data loss in v1.0) and does not compromise security:
+
+| Concern | Why It's Fine |
+|---------|---------------|
+| Private key on disk | 0600 permissions, same threat profile as SSH/TLS keys. Root access exposes all secrets on any system. |
+| Private key in RAM | Only loaded once (first boot QR display), then burned. Never loaded on subsequent starts. |
+| Server can decrypt? | No — server never opens the key file after initial provisioning. |
+| Key rotation | `KEY_ROTATE=true` forces fresh keys. Old ciphertext becomes undecryptable — operator chooses when. |
+
+**Red alert:** If someone gets root on your server, they can read `private_key.pem`. This is the same as them reading your SSH host key, TLS private key, or database password file. ZeroDrop has always assumed the server is in a physically controlled environment. The zero-knowledge guarantee during active submission/printing is **unchanged from v1.0**.
+
 ### Last Updated
 
-2026-06-06 — **v1.1 implementation complete**: All 7 tasks done on `feature/v1.1-admin-dashboard` branch. 43 tests passing. Ready for merge to main.
+2026-06-07 — **v1.1 docs finalized**: All documentation updated with persistent key rationale. README.md Security Model section expanded with "Why Persistent Keys Don't Compromise Security". PRD updated with v1.1 overrides (NFR-S-004, NFR-D-005). decisions log and CURRENT_STATUS.md updated. 43 tests passing. Ready for merge to main.

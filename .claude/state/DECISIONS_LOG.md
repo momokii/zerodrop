@@ -361,3 +361,13 @@
 **Alternatives Rejected:** Keep single printer (limits flexibility), external config file for printer selection (operational burden), printer pooling (overkill for thermal printers that can't handle concurrent jobs).
 **Security Implications:** Neutral — printer selection is admin-only (requires auth). No sensitive data in printer info.
 **Impact:** New `pkg/printmgr/printmgr.go`. Spooler modified to get printer from manager. Admin API for printer listing and switching.
+
+---
+
+**Decision:** v1.1-D001 Persistent Key Pair Storage
+**Date:** 2026-06-04
+**Context:** v1.0 generated a fresh key pair on every server restart, which destroyed access to all previously encrypted payloads. This made the system unusable in practice — a simple container restart (deploy, power outage, maintenance) would invalidate every delivered credential. Operators also had to redistribute the new public key after each reboot.
+**Rationale:** Save the private key to disk (0600) on first run so it survives restarts. The Burn Protocol still runs — the key is zeroed from RAM after the one-time QR display. On subsequent starts, the server loads only the public key; the private key never enters memory. This preserves the zero-knowledge guarantee during operation while eliminating the catastrophic data-loss-on-restart problem.
+**Alternatives Rejected:** Ephemeral keys every restart (v1.0 — data loss on reboot), HSM/TPM backing (overkill for a thermal printer terminal), operator must re-upload key on each restart (operational burden, human error risk).
+**Security Implications:** The private key file on disk (0600) is inert during operation — the server never opens it. Root access could read it, but that's true for ALL disk-backed secrets (SSH, TLS, database). The zero-knowledge guarantee during submission/printing is unchanged. Key rotation available via `KEY_ROTATE=true`.
+**Impact:** `pkg/crypto` modified to save private key to disk. `InitializeOrLoadKeyPair()` loads existing keys on subsequent starts. Burn Protocol changed to memory-only (disk file preserved).

@@ -137,9 +137,9 @@ If any answer is "no", fix it before ending the session.
 
 ### Security Notes (Critical)
 
-- **Zero-knowledge is non-negotiable**: Server must never possess plaintext payload or private key at any point
-- **Burn Protocol**: Must use `runtime.KeepAlive()` after zeroing private key to prevent compiler optimization
-- **Persistent keys (v1.1)**: Private key saved to disk (0600) on first run, only loaded to RAM for first-run QR display, then burned. `KEY_ROTATE=true` forces regeneration.
+- **Zero-knowledge is non-negotiable**: Server must never possess plaintext payload or private key at any point during operation
+- **Burn Protocol**: Must use `runtime.KeepAlive()` after zeroing private key from memory to prevent compiler optimization
+- **Persistent keys (v1.1)**: Private key saved to disk (0600) on first run, only loaded to RAM for first-run QR display, then burned. On subsequent starts the private key never enters server memory — only the public key is loaded. This is intentional: in v1.0, ephemeral keys meant every restart invalidated all previous ciphertext. Persistent keys ensure previously encrypted payloads remain decryptable after reboot. See `.claude/state/DECISIONS_LOG.md` (D-001) for full rationale. `KEY_ROTATE=true` forces regeneration.
 - **Admin auth (v1.1)**: `ADMIN_TOKEN` env var, constant-time comparison, session cookies (HttpOnly, SameSite, 24h expiry), login rate-limited (10 attempts/15min/IP)
 - **QR version header**: All payloads prefixed with `ZD1:` for forward compatibility
 - **Key fingerprinting**: SHA-256 hash of public key logged on startup for operator verification

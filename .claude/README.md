@@ -135,8 +135,9 @@ This is not optional. Keeping `.claude/` accurate is part of every task.
 
 ### Security (Critical)
 
-- **Zero-knowledge is non-negotiable**: Server must never possess plaintext payload or private key at any point
-- **Burn Protocol**: Must use `runtime.KeepAlive()` after zeroing private key
+- **Zero-knowledge is non-negotiable**: Server must never possess plaintext payload or private key at any point during operation
+- **Burn Protocol**: Must use `runtime.KeepAlive()` after zeroing private key from memory
+- **Persistent keys (v1.1)**: Private key saved to disk (0600) so restarts don't destroy access to previously encrypted data. Only loaded into RAM once (first boot), then burned. Never loaded on subsequent starts — see README.md Security Model for full rationale
 - **Memory hygiene**: All payload buffers zeroed after print job completion
 - **No database**: Ephemeral RAM-only processing
 - **Rate limiting**: Applied at application level

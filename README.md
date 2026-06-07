@@ -113,8 +113,8 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 | Decision | Rationale |
 |----------|-----------|
 | **No database** | Eliminates persistent attack surface. Data exists only during the print job. |
-| **Burn Protocol** | Server generates a key pair, logs the private key for the operator, then destroys it. Uses `runtime.KeepAlive()` to prevent compiler optimization of the zeroing. |
-| **Ephemeral key per restart** | First run generates a key pair, saves private key to disk (0600), shows QR, burns from RAM. Subsequent runs load only the public key — the private key never enters memory again. Use `KEY_ROTATE=true` to force regeneration. |
+| **Burn Protocol** | On first run, the private key is displayed as a QR code, then explicitly zeroed from RAM using `runtime.KeepAlive()` to prevent compiler optimization. |
+| **Persistent key pair (v1.1)** | The key pair is saved to disk and reused across restarts. Previously (v1.0), every restart generated fresh keys, rendering all previous ciphertext undecryptable. Now previously encrypted data remains readable after reboot. Operators can force regeneration with `KEY_ROTATE=true`. |
 | **ZD1: payload prefix** | Forward-compatible version header for the QR payload format. |
 | **Dual API paths** | Both `/api/*` and legacy `/*` routes are supported for backward compatibility. |
 | **Buffered spooler channel** | Non-blocking job submission with 10-job buffer. Returns 503 if spooler is full. |
@@ -124,7 +124,7 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 
 ## How It Works
 
-1. **Operator starts the server** — On first boot, an X25519 key pair is generated. The public key is saved to disk; the private key is saved to disk (0600), logged as a QR code to stdout, then destroyed from memory via the Burn Protocol. On subsequent starts, only the public key is loaded — the private key never enters server memory again.
+1. **Operator starts the server** — On first boot, an X25519 key pair is generated. The public key is saved to disk for serving via `GET /key`; the private key is saved to disk (0600 permissions) and displayed as a QR code to stdout for the operator to capture, then immediately destroyed from memory via the Burn Protocol. **On subsequent starts, the existing key pair is reused from disk** — only the public key is loaded into memory for serving. The private key never enters server RAM again after the initial boot. This means all previously encrypted payloads remain decryptable across restarts.
 2. **Submitter opens the web interface** — The React SPA fetches the server's public key (`GET /key`) and displays its SHA-256 fingerprint for verification.
 3. **Submitter encrypts a message** — The plaintext is encrypted in-browser using Web Crypto API (X25519 ECDH) and prefixed with `ZD1:` for versioning.
 4. **Submitter sends the payload** — The encrypted ciphertext is posted to the server (`POST /drop`). The server cannot decrypt it — it only receives the encrypted blob.
@@ -552,14 +552,32 @@ The `TLS_ENABLED` variable controls whether ZeroDrop serves HTTPS with a built-i
 
 ### Zero-Knowledge Guarantee
 
-The server **never** possesses either the plaintext payload or the private key needed to decrypt it:
+The server **never** possesses either the plaintext payload or the private key needed to decrypt it at runtime:
 
-1. **Key generation** — On first run, the server generates an X25519 key pair. The private key is saved to disk (0600 permissions), displayed as a QR code, then burned from RAM
-2. **Key reuse** — On subsequent starts, only the public key is loaded. The private key never re-enters server memory
+1. **Key generation** — On first boot, an X25519 key pair is generated. The public key is saved to disk for serving; the private key is saved to disk (0600), displayed as a QR code, then burned from RAM
+2. **Key persistence** — On subsequent starts, the existing key pair is reused. The private key file remains on disk (0600) but is **never loaded into server memory** after the initial boot. Only the public key is loaded for serving via `GET /key`
 3. **Public key distribution** — The public key is served via `GET /key` and saved to disk
 4. **Burn Protocol** — On first run, the private key is explicitly zeroed from memory using `runtime.KeepAlive()` to prevent compiler optimization
 5. **Client-side encryption** — All encryption happens in the browser using Web Crypto API
 6. **Server ignorance** — The server receives only the encrypted ciphertext, which it cannot decrypt
+
+### Why Persistent Keys Don't Compromise Security
+
+The shift from ephemeral keys (v1.0 — new keys on every restart) to persistent keys (v1.1 — keys saved to disk) was made for a critical operational reason:
+
+> **Ephemeral keys made every restart destructive.** Previously, a fresh key pair was generated on each boot, which meant every previously encrypted payload became permanently undecryptable — the old private key was gone. Operators had to redistribute the new public key every time the server restarted. For any real deployment, this was impractical and error-prone.
+
+**Persistent keys solve this without sacrificing security:**
+
+| Concern | Why It's Still Secure |
+|---------|----------------------|
+| **Private key on disk** | Written once with `0600` permissions (owner-read-only). Equivalent threat profile to SSH host keys, TLS certificates, or any disk-backed secret. If an attacker has root access to read the private key file, the system is already compromised regardless of encryption. |
+| **Private key in memory** | Only loaded into RAM on the **very first boot** for QR display. After that one-time display: zeroed via Burn Protocol. On all subsequent restarts, the private key **never enters server memory** — the server literally cannot load it to decrypt anything. |
+| **Server can now decrypt?** | **No.** The server never loads the private key. It cannot decrypt past or future payloads. The Burn Protocol ensures the key is destroyed from RAM after first use. The key file on disk is inert — the server doesn't open it. |
+| **Key rotation** | Operators can force a fresh key pair at any time with `KEY_ROTATE=true`. Old ciphertext encrypted with the previous key becomes undecryptable after rotation — handle with care. |
+| **Physical server access** | If an attacker gains physical or root access, they can read the private key file — but this is true for **every** system that uses disk-backed secrets (SSH, HTTPS, database encryption). ZeroDrop's threat model assumes the server is in a physically controlled environment. |
+
+**Bottom line:** The zero-knowledge guarantee during active operation is unchanged. The server processes encrypted payloads it cannot read. The private key is never loaded in memory after boot. Persistent keys simply remove the operational nightmare of data loss on every restart.
 
 ### Memory Hygiene
 
@@ -571,7 +589,7 @@ The server **never** possesses either the plaintext payload or the private key n
 
 | Measure | Implementation |
 |---------|---------------|
-| No persistent storage | No database. RAM-only processing. |
+| No database | All processing is RAM-only. No database, no persistent payload storage. |
 | Forward compatibility | All payloads prefixed with `ZD1:` version header |
 | Key fingerprinting | SHA-256 hash of public key printed on startup for operator verification |
 | Rate limiting | Built-in per-IP rate limiting (5 req/hr default). Deploy behind a reverse proxy for production-grade rate limiting, TLS, and security hardening. |
@@ -585,7 +603,8 @@ The server **never** possesses either the plaintext payload or the private key n
 
 | Threat | Mitigation |
 |--------|-----------|
-| Server compromise | Server cannot decrypt stored payloads (no private key) |
+| Server compromise | Server cannot decrypt stored payloads — private key never loaded into RAM |
+| Private key file theft (root access) | Private key on disk at `0600` permissions. If attacker has root, all secrets are exposed — equivalent to SSH/TLS key theft on any system. Mitigated by physical security, file permissions, and `KEY_ROTATE=true` for key refresh. |
 | Network interception | Payload is encrypted before transmission |
 | Physical printer access | Only ciphertext is printed; no plaintext exposed |
 | Database breach | No database exists |

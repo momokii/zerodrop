@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -262,10 +263,21 @@ func (h *AdminHandler) handleKeyQRDownload(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *AdminHandler) handleKeyRotate(w http.ResponseWriter, r *http.Request) {
-	publicKeyPath := h.publicKeyPath
-	// Delete private key to force regeneration on next restart
-	os.Remove(filepath.Join(filepath.Dir(publicKeyPath), "private_key.pem"))
-	os.Remove(publicKeyPath)
+	var errs []string
+	if err := os.Remove(h.privateKeyPath); err != nil {
+		errs = append(errs, fmt.Sprintf("private key: %v", err))
+	}
+	if err := os.Remove(h.publicKeyPath); err != nil {
+		errs = append(errs, fmt.Sprintf("public key: %v", err))
+	}
+
+	if len(errs) > 0 {
+		log.Printf("Admin key rotation failed: %s", strings.Join(errs, "; "))
+		http.Error(w, fmt.Sprintf(`{"error":"key rotation failed: %s"}`, strings.Join(errs, "; ")), http.StatusInternalServerError)
+		return
+	}
+
+	h.keyGeneratedAt = time.Now()
 	log.Println("Admin triggered key rotation — keys deleted, restart required")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

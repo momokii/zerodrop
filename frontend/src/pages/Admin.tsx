@@ -50,6 +50,7 @@ export default function Admin() {
   const [loading, setLoading] = useState(false);
   const [sessionChecking, setSessionChecking] = useState(true);
   const [qrModal, setQrModal] = useState<{ url: string; label: string } | null>(null);
+  const [rotateConfirm, setRotateConfirm] = useState(false);
 
   const handleLogin = async () => {
     setError("");
@@ -142,11 +143,11 @@ export default function Admin() {
   };
 
   const handleRotateKey = async () => {
-    if (!confirm("Are you sure? This deletes the current key pair. You must restart the server after rotation.")) return;
+    setRotateConfirm(false);
     setLoading(true);
     try {
       const result = await rotateKey();
-      alert(result.message);
+      setError(result.message);
     } catch {
       setError("Failed to rotate key.");
     } finally {
@@ -388,7 +389,7 @@ export default function Admin() {
                       variant="destructive"
                       size="sm"
                       className="w-full"
-                      onClick={handleRotateKey}
+                      onClick={() => setRotateConfirm(true)}
                       disabled={loading}
                     >
                       Rotate Key
@@ -402,6 +403,53 @@ export default function Admin() {
           </Card>
         </div>
       </div>
+
+      {/* Rotate Key Confirmation Modal */}
+      {rotateConfirm && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+          onClick={() => setRotateConfirm(false)}
+        >
+          <div
+            className="bg-white rounded-xl p-6 max-w-sm mx-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold">Rotate Key Pair?</h3>
+              <button
+                className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+                onClick={() => setRotateConfirm(false)}
+              >
+                &times;
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              This deletes the current key pair from disk. After rotation you
+              <strong> must restart the server</strong> to generate new keys.
+              Submitters will need the new public key fingerprint.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={() => setRotateConfirm(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="flex-1"
+                onClick={handleRotateKey}
+                disabled={loading}
+              >
+                {loading ? "Rotating..." : "Rotate"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* QR Code Modal Overlay */}
       {qrModal && (

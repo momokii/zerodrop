@@ -42,8 +42,16 @@ export default function Admin() {
     try {
       await adminLogin(token);
       setAuthenticated(true);
-    } catch {
-      setError("Invalid token. Check your ADMIN_TOKEN environment variable.");
+    } catch (e) {
+      if (e instanceof Error && e.message === "ADMIN_NOT_CONFIGURED") {
+        setError(
+          "Admin dashboard is not configured on the server. " +
+          "Set ADMIN_TOKEN in .env to a secure random string (openssl rand -hex 32) " +
+          "and restart the server."
+        );
+      } else {
+        setError("Invalid token. Check your ADMIN_TOKEN environment variable.");
+      }
     } finally {
       setLoading(false);
     }
@@ -59,10 +67,17 @@ export default function Admin() {
       setStatus(s);
       setMetrics(m);
       setPrinters(p);
-    } catch {
-      // Session may have expired
-      setAuthenticated(false);
-      setError("Session expired. Please log in again.");
+    } catch (e) {
+      if (e instanceof Error && e.message === "ADMIN_NOT_CONFIGURED") {
+        setAuthenticated(false);
+        setError(
+          "Admin dashboard is not configured on the server. " +
+          "Set ADMIN_TOKEN in .env and restart."
+        );
+      } else {
+        setAuthenticated(false);
+        setError("Session expired. Please log in again.");
+      }
     }
   }, []);
 

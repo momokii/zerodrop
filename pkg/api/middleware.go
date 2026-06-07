@@ -74,10 +74,26 @@ func generateToken() string {
 }
 
 // RequireAuth is middleware that checks for a valid admin session.
+// It accepts the session token from three sources (tried in order):
+//   1. X-Session-Token header (used by SPA — reliable in fetch API)
+//   2. Authorization: Bearer <token> header (standard HTTP auth)
+//   3. zerodrop_admin_session cookie (backward compatibility)
 func (s *SessionStore) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("zerodrop_admin_session")
-		if err != nil || !s.Valid(cookie.Value) {
+		session := r.Header.Get("X-Session-Token")
+		if session == "" {
+			// Try Authorization: Bearer header
+			if ah := r.Header.Get("Authorization"); len(ah) > 7 && ah[:7] == "Bearer " {
+				session = ah[7:]
+			}
+		}
+		if session == "" {
+			// Fall back to cookie
+			if c, err := r.Cookie("zerodrop_admin_session"); err == nil {
+				session = c.Value
+			}
+		}
+		if session == "" || !s.Valid(session) {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}

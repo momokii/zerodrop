@@ -117,16 +117,24 @@ func (h *AdminHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set cookie for backward compatibility (some clients may use it)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "zerodrop_admin_session",
 		Value:    session,
 		Path:     "/",
 		MaxAge:   86400,
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 	})
+	// Also return the session token in a response header and body so the SPA
+	// can use header-based auth (X-Session-Token), which is more reliable
+	// than cookies in fetch API.
+	w.Header().Set("X-Session-Token", session)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "ok",
+		"session": session,
+	})
 }
 
 func (h *AdminHandler) handleStatus(w http.ResponseWriter, r *http.Request) {

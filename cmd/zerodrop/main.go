@@ -183,6 +183,7 @@ func main() {
 		server.EnableAdmin(splr, pm, cfg.PublicKeyPath, cfg.PrivateKeyPath, fingerprint)
 		log.Println("Admin dashboard enabled at /admin")
 	} else {
+		server.FinalizeRoutes()
 		log.Println("Admin dashboard disabled (set ADMIN_TOKEN to enable)")
 	}
 

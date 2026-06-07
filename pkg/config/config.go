@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // Config holds the application configuration
@@ -144,7 +145,12 @@ func LoadFromEnv() (*Config, error) {
 	}
 
 	// Optional: ADMIN_TOKEN
+	// Treat empty, "false", "0", "no", "disabled" (case-insensitive) as
+	// disabled — a real token must be a secure random string.
 	config.AdminToken = os.Getenv("ADMIN_TOKEN")
+	if s := strings.ToLower(config.AdminToken); s == "" || s == "false" || s == "0" || s == "no" || s == "disabled" {
+		config.AdminToken = ""
+	}
 
 	// Optional: KEY_ROTATE
 	if val := os.Getenv("KEY_ROTATE"); val != "" {

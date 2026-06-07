@@ -108,12 +108,13 @@ func extractIP(remoteAddr string) string {
 
 // Server handles HTTP requests for the ZeroDrop API
 type Server struct {
-	config   *config.Config
-	spooler  chan []byte
-	printer  interface{}
-	router   *mux.Router
-	admin    *AdminHandler
-	sessions *SessionStore
+	config    *config.Config
+	spooler   chan []byte
+	printer   interface{}
+	router    *mux.Router
+	apiRouter *mux.Router // subrouter for /api/* — admin routes register here
+	admin     *AdminHandler
+	sessions  *SessionStore
 }
 
 // DropRequest represents the JSON payload for /drop endpoint
@@ -147,11 +148,26 @@ func (s *Server) EnableAdmin(
 		publicKeyPath, privateKeyPath, keyFingerprint,
 	)
 	s.setupAdminRoutes()
+	s.FinalizeRoutes()
 }
 
-// setupAdminRoutes registers all admin API routes.
+// FinalizeRoutes registers the API catch-all AFTER all other routes (admin
+// included) so they take priority. Must be called after all route setup is
+// complete — called from EnableAdmin and from main.go when admin is disabled.
+func (s *Server) FinalizeRoutes() {
+	s.apiRouter.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "not found",
+		})
+	}))
+}
+
+// setupAdminRoutes registers all admin API routes on the /api subrouter
+// (before the catch-all) so they don't get intercepted.
 func (s *Server) setupAdminRoutes() {
-	adminRouter := s.router.PathPrefix("/api/admin").Subrouter()
+	adminRouter := s.apiRouter.PathPrefix("/admin").Subrouter()
 
 	// Login is public (no auth required)
 	adminRouter.Handle("/login", http.HandlerFunc(s.admin.handleLogin)).Methods(http.MethodPost)
@@ -176,6 +192,7 @@ func (s *Server) setupRoutes() {
 	// Rate-limited routes (key and drop only — health is excluded so Docker
 	// HEALTHCHECK doesn't get 429 after a few checks)
 	apiRouter := s.router.PathPrefix("/api").Subrouter()
+	s.apiRouter = apiRouter // saved so admin routes register here (before the catch-all)
 	apiRouter.Handle("/key", rl.middleware(http.HandlerFunc(s.handleGetKey))).Methods(http.MethodGet)
 	apiRouter.Handle("/drop", rl.middleware(http.HandlerFunc(s.handleDrop))).Methods(http.MethodPost)
 	apiRouter.Handle("/health", http.HandlerFunc(s.handleHealth)).Methods(http.MethodGet)
@@ -364,23 +381,7 @@ type spaHandler struct {
 }
 
 // ServeHTTP serves static files and falls back to index.html for SPA routing.
-// API paths that don't match any registered route return JSON 404 instead
-// of HTML — this prevents the frontend from silently swallowing API errors
-// when admin or other API routes are disabled.
 func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Never serve SPA for /api/ paths — return proper JSON error so frontend
-	// code can distinguish "route not found" from a successful HTML response.
-	// This is critical for admin dashboard: without ADMIN_TOKEN set, /api/admin/*
-	// routes don't exist, and the frontend must receive a JSON error, not index.html.
-	if strings.HasPrefix(r.URL.Path, "/api/") {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "not found",
-		})
-		return
-	}
-
 	// Get the absolute path to prevent directory traversal
 	path, err := filepath.Abs(filepath.Join(h.staticFilePath, r.URL.Path))
 	if err != nil {
@@ -392,6 +393,10 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, err = os.Stat(path)
 	if os.IsNotExist(err) {
 		// File doesn't exist, serve index.html for SPA routing
+		// Prevent browser caching so updated frontend builds are always fetched
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		http.ServeFile(w, r, filepath.Join(h.staticFilePath, h.indexPath))
 		return
 	} else if err != nil {

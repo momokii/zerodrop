@@ -136,7 +136,7 @@ export default function Admin() {
               <Input
                 id="token"
                 type="password"
-                placeholder="Enter ADMIN_TOKEN"
+                placeholder="Enter Token"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleLogin()}

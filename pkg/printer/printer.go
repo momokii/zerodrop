@@ -24,8 +24,10 @@ type Reconnector interface {
 
 // PrinterInfo describes a detected printer.
 type PrinterInfo struct {
-	ID     string `json:"id"`     // Unique identifier (device path or "mock")
-	Name   string `json:"name"`   // Human-readable model name
-	Type   string `json:"type"`   // "usb" or "mock"
-	Device string `json:"device"` // Device path (e.g., /dev/usb/lp0)
+	ID        string `json:"id"`        // Unique identifier (device path or "mock")
+	Name      string `json:"name"`      // Human-readable model name
+	Type      string `json:"type"`      // "usb", "rawusb", or "mock"
+	Device    string `json:"device"`    // Device path (e.g., /dev/usb/lp0 or /dev/bus/usb/...)
+	VendorID  string `json:"vendor_id,omitempty"`  // USB vendor ID (for raw USB)
+	ProductID string `json:"product_id,omitempty"` // USB product ID (for raw USB)
 }

@@ -3,6 +3,7 @@ package printer
 import (
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 )
 
@@ -58,11 +59,17 @@ func (pm *PrinterManager) Detect() []PrinterInfo {
 	})
 
 	for _, p := range printers {
+		printerType := "usb"
+		if strings.HasPrefix(p["path"], "/dev/bus/usb/") {
+			printerType = "rawusb"
+		}
 		result = append(result, PrinterInfo{
-			ID:     p["path"],
-			Name:   p["model"],
-			Type:   "usb",
-			Device: p["path"],
+			ID:        p["path"],
+			Name:      p["model"],
+			Type:      printerType,
+			Device:    p["path"],
+			VendorID:  p["vendor_id"],
+			ProductID: p["product_id"],
 		})
 	}
 
@@ -96,9 +103,19 @@ func (pm *PrinterManager) SetActive(id string) error {
 	}
 
 	var newPrinter Printer
-	if found.Type == "mock" {
+	switch found.Type {
+	case "mock":
 		newPrinter = NewMockPrinter()
-	} else {
+	case "rawusb":
+		if found.VendorID == "" || found.ProductID == "" {
+			return fmt.Errorf("cannot initialize raw USB printer %s: missing vendor/product ID", found.ID)
+		}
+		raw, err := NewRawUSBPrinter(found.VendorID, found.ProductID)
+		if err != nil {
+			return fmt.Errorf("failed to initialize raw USB printer %s: %w", found.ID, err)
+		}
+		newPrinter = raw
+	default:
 		usb, err := NewUSBPrinter(found.Device)
 		if err != nil {
 			return fmt.Errorf("failed to initialize USB printer %s: %w", found.Device, err)

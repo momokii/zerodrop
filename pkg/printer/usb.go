@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/zerodrop/terminal/pkg/qr"
@@ -246,10 +247,69 @@ func (p *USBPrinter) HealthCheck() map[string]interface{} {
 	return status
 }
 
-// DetectAvailablePrinters returns a list of all detected thermal printers
+// detectRawUSBPrinters scans /sys/bus/usb/devices/ for known thermal printers
+// connected via raw USB (no usblp device node). Returns entries with "path"
+// set to /dev/bus/usb/BBB/DDD, plus "vendor_id" and "product_id".
+func detectRawUSBPrinters() []map[string]string {
+	printers := make([]map[string]string, 0)
+
+	entries, err := os.ReadDir("/sys/bus/usb/devices/")
+	if err != nil {
+		return printers
+	}
+
+	for _, entry := range entries {
+		devPath := "/sys/bus/usb/devices/" + entry.Name() + "/"
+
+		vid := readSysfsFile(devPath + "idVendor")
+		pid := readSysfsFile(devPath + "idProduct")
+		if vid == "" || pid == "" {
+			continue
+		}
+
+		for _, kp := range knownPrinters {
+			if kp.vendorID != vid || kp.productID != pid {
+				continue
+			}
+
+			bus, err1 := strconv.Atoi(readSysfsFile(devPath + "busnum"))
+			dev, err2 := strconv.Atoi(readSysfsFile(devPath + "devnum"))
+			if err1 != nil || err2 != nil {
+				continue
+			}
+
+			devicePath := fmt.Sprintf("/dev/bus/usb/%03d/%03d", bus, dev)
+
+			// Only add if the device node actually exists
+			if _, err := os.Stat(devicePath); os.IsNotExist(err) {
+				continue
+			}
+
+			modelName := kp.name
+			// Try to get a more specific model name from sysfs
+			if product := readSysfsFile(devPath + "product"); product != "" {
+				modelName = product
+			}
+
+			printers = append(printers, map[string]string{
+				"path":       devicePath,
+				"model":      modelName,
+				"vendor_id":  vid,
+				"product_id": pid,
+			})
+			break
+		}
+	}
+
+	return printers
+}
+
+// DetectAvailablePrinters returns a list of all detected thermal printers.
+// Scans both /dev/usb/lp* (usblp driver) and /dev/bus/usb/* (raw USB) paths.
 func DetectAvailablePrinters() []map[string]string {
 	printers := make([]map[string]string, 0)
 
+	// Scan usblp device nodes
 	candidatePaths := []string{
 		"/dev/usb/lp0", "/dev/usb/lp1", "/dev/usb/lp2",
 		"/dev/usblp0", "/dev/usblp1", "/dev/usblp2",
@@ -272,6 +332,10 @@ func DetectAvailablePrinters() []map[string]string {
 
 		printers = append(printers, printerInfo)
 	}
+
+	// Scan raw USB devices (for Docker/containers where /dev/usb/lp* is not available)
+	rawPrinters := detectRawUSBPrinters()
+	printers = append(printers, rawPrinters...)
 
 	return printers
 }

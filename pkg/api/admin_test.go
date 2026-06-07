@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zerodrop/terminal/pkg/printer"
 	"github.com/zerodrop/terminal/pkg/spooler"
@@ -25,7 +26,7 @@ func setupAdminTest(t *testing.T) (*AdminHandler, string) {
 		ID: "mock", Name: "Mock Printer", Type: "mock",
 	})
 
-	sessions := NewSessionStore("test-admin-token")
+	sessions := NewSessionStore("test-admin-token", 24*time.Hour)
 	handler := NewAdminHandler(
 		sessions, splr, pm,
 		filepath.Join(tmpDir, "public_key.pem"),

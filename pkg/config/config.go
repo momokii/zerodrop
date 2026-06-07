@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds the application configuration
@@ -37,6 +38,10 @@ type Config struct {
 	// If empty, admin endpoints are disabled.
 	AdminToken string
 
+	// AdminSessionTTL is the lifetime of admin dashboard sessions.
+	// Default: 24h.
+	AdminSessionTTL time.Duration
+
 	// KeyRotate forces generation of a new key pair on next startup.
 	KeyRotate bool
 
@@ -53,6 +58,7 @@ func DefaultConfig() *Config {
 		RateLimitBurst:           1,
 		LogEnabled:               false,
 		PublicKeyPath:            "./data/public_key.pem",
+		AdminSessionTTL:          24 * time.Hour,
 	}
 }
 
@@ -150,6 +156,18 @@ func LoadFromEnv() (*Config, error) {
 	config.AdminToken = os.Getenv("ADMIN_TOKEN")
 	if s := strings.ToLower(config.AdminToken); s == "" || s == "false" || s == "0" || s == "no" || s == "disabled" {
 		config.AdminToken = ""
+	}
+
+	// Optional: ADMIN_SESSION_TTL
+	if val := os.Getenv("ADMIN_SESSION_TTL"); val != "" {
+		ttl, err := time.ParseDuration(val)
+		if err != nil {
+			return nil, fmt.Errorf("ADMIN_SESSION_TTL must be a valid duration (e.g. 24h, 30m): %w", err)
+		}
+		if ttl <= 0 {
+			return nil, fmt.Errorf("ADMIN_SESSION_TTL must be positive (got: %s)", val)
+		}
+		config.AdminSessionTTL = ttl
 	}
 
 	// Optional: KEY_ROTATE

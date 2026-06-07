@@ -17,12 +17,13 @@ type SessionStore struct {
 	maxAge   time.Duration
 }
 
-// NewSessionStore creates a new session store with the given admin token.
-func NewSessionStore(adminToken string) *SessionStore {
+// NewSessionStore creates a new session store with the given admin token
+// and session lifetime. maxAge controls how long sessions remain valid.
+func NewSessionStore(adminToken string, maxAge time.Duration) *SessionStore {
 	return &SessionStore{
 		sessions: make(map[string]time.Time),
 		adminKey: adminToken,
-		maxAge:   24 * time.Hour,
+		maxAge:   maxAge,
 	}
 }
 
@@ -31,6 +32,12 @@ func (s *SessionStore) Logout(sessionToken string) {
 	s.mu.Lock()
 	delete(s.sessions, sessionToken)
 	s.mu.Unlock()
+}
+
+func (s *SessionStore) MaxAge() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.maxAge
 }
 
 // Login validates the admin token and creates a session.

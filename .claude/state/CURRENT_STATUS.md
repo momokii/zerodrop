@@ -63,7 +63,7 @@
 - All 43 tests passing with race detection enabled (up from 26 in v1.0)
 - `govulncheck` shows no known vulnerabilities
 - Frontend dependencies have only dev-time vulnerabilities (esbuild/vite not in production)
-- Admin auth uses constant-time token comparison with session cookies (24h expiry)
+- Admin auth uses constant-time token comparison with session cookies (default 24h expiry, configurable via `ADMIN_SESSION_TTL`)
 - Login rate-limited: 10 attempts per 15 minutes per IP
 
 ---
@@ -384,6 +384,7 @@ Similarly, `GetPublicKeyFingerprint` now hashes the SPKI DER bytes so the Go ser
 | Variable | Description |
 |----------|-------------|
 | `ADMIN_TOKEN` | Shared secret for admin auth (set in `.env`) |
+| `ADMIN_SESSION_TTL` | Admin session lifetime (Go duration, default: `24h`) |
 | `KEY_ROTATE` | Set `true` to force key regeneration (default: `false`) |
 | `PRIVATE_KEY_PATH` | Path to save/load private key PEM (default: `./data/private_key.pem`) |
 

@@ -450,7 +450,7 @@ The `printer` object varies by printer type:
 
 ### Admin API (requires authentication)
 
-Admin endpoints are available at `/api/admin/*` when `ADMIN_TOKEN` is configured. Authentication uses session cookies (HttpOnly, SameSite, 24h expiry).
+Admin endpoints are available at `/api/admin/*` when `ADMIN_TOKEN` is configured. Authentication uses session cookies (HttpOnly, SameSite, configurable expiry; default 24h).
 
 #### `POST /api/admin/login`
 
@@ -520,6 +520,7 @@ All configuration is via environment variables.
 | `LOG_ENABLED` | No | `false` | `true`, `false` | Enable structured JSON logging |
 | `TLS_ENABLED` | No | `false` | `true`, `false` | Enable built-in self-signed HTTPS. See [TLS Configuration](#tls-configuration) for when to enable. |
 | `ADMIN_TOKEN` | No | `""` (disabled) | String | Secret token for admin dashboard. Set to enable `/admin` UI and `/api/admin/*` endpoints. Use `openssl rand -hex 32`. |
+| `ADMIN_SESSION_TTL` | No | `24h` | Go duration | Admin session lifetime. Use `24h`, `30m`, `168h`, etc. Shorter for high-security, longer for dedicated monitoring. |
 | `KEY_ROTATE` | No | `false` | `true`, `false` | Force-generate a new key pair on next startup. Old keys are overwritten. |
 
 **Rate Limiting** — The app enforces per-IP rate limiting using a sliding 1-hour window (default: 5 requests/IP/hour, configurable via `RATE_LIMIT_REQUESTS_PER_HOUR` and `RATE_LIMIT_BURST`). Returns HTTP 429 when exceeded.

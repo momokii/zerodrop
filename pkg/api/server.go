@@ -142,7 +142,7 @@ func (s *Server) EnableAdmin(
 	printerMgr *printer.PrinterManager,
 	publicKeyPath, privateKeyPath, keyFingerprint string,
 ) {
-	s.sessions = NewSessionStore(s.config.AdminToken)
+	s.sessions = NewSessionStore(s.config.AdminToken, s.config.AdminSessionTTL)
 	s.admin = NewAdminHandler(
 		s.sessions, splr, printerMgr,
 		publicKeyPath, privateKeyPath, keyFingerprint,

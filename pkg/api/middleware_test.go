@@ -8,7 +8,7 @@ import (
 )
 
 func TestSessionStoreLogin(t *testing.T) {
-	store := NewSessionStore("test-token")
+	store := NewSessionStore("test-token", 24*time.Hour)
 
 	// Correct token
 	session, ok := store.Login("test-token")
@@ -27,7 +27,7 @@ func TestSessionStoreLogin(t *testing.T) {
 }
 
 func TestSessionStoreValid(t *testing.T) {
-	store := NewSessionStore("test-token")
+	store := NewSessionStore("test-token", 24*time.Hour)
 
 	// No session
 	if store.Valid("nonexistent") {
@@ -50,7 +50,7 @@ func TestSessionStoreValid(t *testing.T) {
 }
 
 func TestSessionStoreCleanup(t *testing.T) {
-	store := NewSessionStore("test-token")
+	store := NewSessionStore("test-token", 24*time.Hour)
 
 	session1, _ := store.Login("test-token")
 	store.mu.Lock()
@@ -70,7 +70,7 @@ func TestSessionStoreCleanup(t *testing.T) {
 }
 
 func TestRequireAuth(t *testing.T) {
-	store := NewSessionStore("test-token")
+	store := NewSessionStore("test-token", 24*time.Hour)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -101,7 +101,7 @@ func TestRequireAuth(t *testing.T) {
 }
 
 func TestConstantTimeComparison(t *testing.T) {
-	store := NewSessionStore("a-longer-admin-token-for-testing")
+	store := NewSessionStore("a-longer-admin-token-for-testing", 24*time.Hour)
 
 	// Various wrong tokens should all fail
 	wrongTokens := []string{"", "wrong", "a-longer-admin-token-for-testin", "a-longer-admin-token-for-testing "}

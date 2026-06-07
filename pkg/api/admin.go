@@ -130,7 +130,7 @@ func (h *AdminHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Name:     "zerodrop_admin_session",
 		Value:    session,
 		Path:     "/",
-		MaxAge:   86400,
+		MaxAge:   int(h.sessions.MaxAge().Seconds()),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})

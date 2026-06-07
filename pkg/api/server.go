@@ -363,8 +363,24 @@ type spaHandler struct {
 	indexPath      string
 }
 
-// ServeHTTP serves static files and falls back to index.html for SPA routing
+// ServeHTTP serves static files and falls back to index.html for SPA routing.
+// API paths that don't match any registered route return JSON 404 instead
+// of HTML — this prevents the frontend from silently swallowing API errors
+// when admin or other API routes are disabled.
 func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Never serve SPA for /api/ paths — return proper JSON error so frontend
+	// code can distinguish "route not found" from a successful HTML response.
+	// This is critical for admin dashboard: without ADMIN_TOKEN set, /api/admin/*
+	// routes don't exist, and the frontend must receive a JSON error, not index.html.
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "not found",
+		})
+		return
+	}
+
 	// Get the absolute path to prevent directory traversal
 	path, err := filepath.Abs(filepath.Join(h.staticFilePath, r.URL.Path))
 	if err != nil {

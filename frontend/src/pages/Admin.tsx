@@ -28,6 +28,18 @@ function formatUptime(seconds: number): string {
   return `${s}s`;
 }
 
+function formatElapsed(ms: number): string {
+  if (ms <= 0) return "Never";
+  const totalSeconds = Math.floor(ms / 1000);
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s ago`;
+  if (m > 0) return `${m}m ${s}s ago`;
+  if (s > 0) return `${s}s ago`;
+  return "just now";
+}
+
 export default function Admin() {
   const [authenticated, setAuthenticated] = useState(false);
   const [token, setToken] = useState("");
@@ -247,7 +259,7 @@ export default function Admin() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Last Print</span>
                     <span className="font-mono text-xs">
-                      {metrics.total_processed > 0 ? `${metrics.last_print_ms}ms ago` : "Never"}
+                      {formatElapsed(metrics.last_print_ms)}
                     </span>
                   </div>
                   <div className="flex justify-between">

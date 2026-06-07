@@ -120,6 +120,122 @@
             box-shadow: none;
         }
 
+        .btn-row {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .btn-row button {
+            flex: 1;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: #666;
+            border: 1px solid #ddd;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .btn-secondary:hover {
+            background: #f5f5f5;
+            border-color: #ccc;
+            color: #444;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-danger {
+            background: #dc2626;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-danger:hover {
+            background: #b91c1c;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+            animation: fadeIn 0.15s ease;
+        }
+
+        .modal-dialog {
+            background: white;
+            border-radius: 14px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 420px;
+            width: 100%;
+            overflow: hidden;
+            animation: scaleIn 0.15s ease;
+        }
+
+        .modal-header {
+            padding: 24px 24px 0 24px;
+        }
+
+        .modal-header h3 {
+            font-size: 18px;
+            font-weight: 700;
+            color: #333;
+            margin: 0;
+        }
+
+        .modal-body {
+            padding: 12px 24px 20px 24px;
+        }
+
+        .modal-body p {
+            font-size: 14px;
+            color: #666;
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            padding: 0 24px 20px 24px;
+        }
+
+        .modal-footer button {
+            flex: 1;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes scaleIn {
+            from { transform: scale(0.95); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
         .result {
             background: #f9f9f9;
             border: 1px solid #ddd;
@@ -242,7 +358,18 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
             <p class="info" style="font-size:11px;">JWK works in all browsers (fingerprint + decrypt). PEM may not show fingerprint in some browsers.</p>
         </div>
 
-        <button id="decryptBtn" disabled>🔓 Decrypt</button>
+        <div class="btn-row">
+            <button id="decryptBtn" disabled>🔓 Decrypt</button>
+            <button id="clearAllBtn" class="btn-secondary" type="button">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18"/>
+                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                    <path d="M10 11v6"/>
+                    <path d="M14 11v6"/>
+                </svg>
+                Clear All
+            </button>
+        </div>
 
         <div id="result" class="result">
             <div class="result-title"></div>
@@ -262,6 +389,21 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
         </p>
     </div>
 
+    <div id="confirmModal" class="modal-overlay" style="display:none;">
+        <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+            <div class="modal-header">
+                <h3 id="modalTitle">Clear All Data?</h3>
+            </div>
+            <div class="modal-body">
+                <p>This will remove the payload, private key, and decryption result. This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button id="modalCancelBtn" class="btn-secondary" type="button">Cancel</button>
+                <button id="modalConfirmBtn" class="btn-danger" type="button">Clear All</button>
+            </div>
+        </div>
+    </div>
+
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
@@ -274,12 +416,16 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
         const resultDiv = document.getElementById('result');
         const statusDiv = document.getElementById('status');
         const fingerprintSpan = document.getElementById('fingerprint');
+        const confirmModal = document.getElementById('confirmModal');
+        const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+        const modalCancelBtn = document.getElementById('modalCancelBtn');
 
         let privateKey = null;
         let lastPublicKeyData = null; // cached for fallback fingerprint calc
         let qrCodeData = '';
         let payloadSource = 'camera'; // 'camera' or 'manual'
         let qrDetected = false; // true once QR is captured — stops scan loop
+        let cameraStream = null; // reference for cleanup on clear
 
         async function initCamera() {
             // Check for secure context — camera access requires HTTPS (or localhost).
@@ -301,6 +447,7 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                         height: { ideal: 480, max: 480 }
                     }
                 });
+                cameraStream = stream;
                 video.srcObject = stream;
                 showStatus('Scanning...', 'scanning');
                 startQRScan();
@@ -525,6 +672,37 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
             resultDiv.className = 'result ' + type;
             resultDiv.querySelector('.result-title').textContent = title;
             resultDiv.querySelector('.result-content').textContent = content || '(no details)';
+        }
+
+        function clearAll() {
+            // Stop main camera if running
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(t => t.stop());
+                cameraStream = null;
+            }
+            // Stop private key scan if running
+            scanningPrivateKey = false;
+            scanKeyBtn.textContent = '\uD83D\uDCF7 Scan Private Key QR';
+
+            // Clear all inputs
+            payloadInput.value = '';
+            privateKeyInput.value = '';
+
+            // Reset all state
+            privateKey = null;
+            lastPublicKeyData = null;
+            qrCodeData = '';
+            payloadSource = 'camera';
+            qrDetected = false;
+
+            // Reset UI
+            clearResult();
+            showStatus('All data cleared. Ready to start fresh.', 'scanning');
+            decryptBtn.disabled = true;
+            fingerprintSpan.textContent = 'Calculating...';
+
+            // Restart camera for fresh scan
+            setTimeout(initCamera, 300);
         }
 
         // Manual payload paste
@@ -781,6 +959,33 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                 showStatus(errMsg, 'error');
             }
         });
+
+        function showModal() {
+            confirmModal.style.display = 'flex';
+        }
+
+        function hideModal() {
+            confirmModal.style.display = 'none';
+        }
+
+        // Close modal on backdrop click
+        confirmModal.addEventListener('click', (e) => {
+            if (e.target === confirmModal) hideModal();
+        });
+
+        // Close modal on Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && confirmModal.style.display === 'flex') hideModal();
+        });
+
+        modalConfirmBtn.addEventListener('click', () => {
+            hideModal();
+            clearAll();
+        });
+
+        modalCancelBtn.addEventListener('click', hideModal);
+
+        document.getElementById('clearAllBtn').addEventListener('click', showModal);
 
         document.getElementById('loadTime').textContent = new Date().toISOString();
         initCamera();

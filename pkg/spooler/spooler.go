@@ -5,26 +5,22 @@ import (
 	"log"
 	"runtime"
 	"time"
+
+	"github.com/zerodrop/terminal/pkg/printer"
 )
 
 // Spooler manages the print job queue and processes jobs sequentially
 type Spooler struct {
 	queue      chan []byte
 	workerDone chan struct{}
-	getPrinter func() Printer
+	getPrinter func() printer.Printer
 	metrics    *Metrics
-}
-
-// Printer interface defines the contract for printing payloads
-type Printer interface {
-	Print(ciphertext []byte) error
-	IsAvailable() bool
 }
 
 // PrinterProvider returns the current active printer. Used by the spooler
 // to resolve the printer at job time so admin printer switching takes effect.
 type PrinterProvider interface {
-	GetActive() Printer
+	GetActive() printer.Printer
 }
 
 // NewSpooler creates a new spooler with the given queue size and printer provider.
@@ -37,10 +33,10 @@ func NewSpooler(queueSize int, provider interface{}) *Spooler {
 	}
 	if pp, ok := provider.(PrinterProvider); ok {
 		s.getPrinter = pp.GetActive
-	} else if p, ok := provider.(Printer); ok {
-		s.getPrinter = func() Printer { return p }
+	} else if p, ok := provider.(printer.Printer); ok {
+		s.getPrinter = func() printer.Printer { return p }
 	} else {
-		panic("NewSpooler: provider must implement Printer or PrinterProvider")
+		panic("NewSpooler: provider must implement printer.Printer or PrinterProvider")
 	}
 	return s
 }

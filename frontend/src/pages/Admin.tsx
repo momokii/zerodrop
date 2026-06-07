@@ -353,8 +353,7 @@ export default function Admin() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm">Spooler Metrics</CardTitle>
               <CardDescription className="text-xs">
-                Real-time print queue stats. Queue depth shows pending jobs out of max capacity.
-                Use this to monitor printer health and job throughput.
+                In-memory print queue stats. All counters reset to zero when the server restarts — there is no persistent database.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
@@ -381,6 +380,14 @@ export default function Admin() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Started</span>
                     <span className="font-mono text-xs">{new Date(metrics.spooler_start_time).toLocaleTimeString()}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 pt-1 border-t border-dashed border-gray-200 dark:border-gray-700">
+                    <svg className="w-3 h-3 text-amber-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                      <line x1="12" y1="9" x2="12" y2="13"/>
+                      <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    <span className="text-xs text-muted-foreground">In-memory only — resets on restart</span>
                   </div>
                 </>
               ) : (

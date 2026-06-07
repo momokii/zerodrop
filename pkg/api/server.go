@@ -175,6 +175,7 @@ func (s *Server) setupAdminRoutes() {
 	// All other admin routes require auth
 	adminAuth := adminRouter.NewRoute().Subrouter()
 	adminAuth.Use(s.sessions.RequireAuth)
+	adminAuth.Handle("/logout", http.HandlerFunc(s.admin.handleLogout)).Methods(http.MethodPost)
 	adminAuth.Handle("/status", http.HandlerFunc(s.admin.handleStatus)).Methods(http.MethodGet)
 	adminAuth.Handle("/metrics", http.HandlerFunc(s.admin.handleMetrics)).Methods(http.MethodGet)
 	adminAuth.Handle("/printers", http.HandlerFunc(s.admin.handleListPrinters)).Methods(http.MethodGet)

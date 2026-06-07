@@ -137,6 +137,35 @@ func (h *AdminHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *AdminHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// Extract the session token from the same sources as RequireAuth
+	session := r.Header.Get("X-Session-Token")
+	if session == "" {
+		if ah := r.Header.Get("Authorization"); len(ah) > 7 && ah[:7] == "Bearer " {
+			session = ah[7:]
+		}
+	}
+	if session == "" {
+		if c, err := r.Cookie("zerodrop_admin_session"); err == nil {
+			session = c.Value
+		}
+	}
+	if session != "" {
+		h.sessions.Logout(session)
+	}
+	// Clear the cookie regardless
+	http.SetCookie(w, &http.Cookie{
+		Name:     "zerodrop_admin_session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 func (h *AdminHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

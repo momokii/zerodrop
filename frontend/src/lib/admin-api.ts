@@ -108,6 +108,18 @@ export async function rotateKey(): Promise<{ message: string }> {
   return res.json();
 }
 
+export async function adminLogout(): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/logout`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+  } catch {
+    // Server might be unreachable — clear local state anyway
+  }
+  sessionToken = "";
+}
+
 export function getKeyDownloadUrl(): string {
   return `${API_BASE}/key`;
 }

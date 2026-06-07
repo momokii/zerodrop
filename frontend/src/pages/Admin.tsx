@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   adminLogin,
+  adminLogout,
   fetchStatus,
   fetchMetrics,
   fetchPrinters,
@@ -35,6 +36,8 @@ export default function Admin() {
   const [metrics, setMetrics] = useState<SpoolerMetrics | null>(null);
   const [printers, setPrinters] = useState<PrinterListResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [sessionChecking, setSessionChecking] = useState(true);
+  const [qrModal, setQrModal] = useState<{ url: string; label: string } | null>(null);
 
   const handleLogin = async () => {
     setError("");
@@ -81,6 +84,32 @@ export default function Admin() {
     }
   }, []);
 
+  // On mount, check if an existing session cookie is still valid
+  // (the HttpOnly cookie persists across reloads — server falls back to it)
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await fetchStatus();
+        const [m, p] = await Promise.all([fetchMetrics(), fetchPrinters()]);
+        setStatus(s);
+        setMetrics(m);
+        setPrinters(p);
+        setAuthenticated(true);
+      } catch (e) {
+        if (e instanceof Error && e.message === "ADMIN_NOT_CONFIGURED") {
+          setError(
+            "Admin dashboard is not configured on the server. " +
+            "Set ADMIN_TOKEN in .env to a secure random string (openssl rand -hex 32) " +
+            "and restart the server."
+          );
+        }
+        // "Unauthorized" or any other error → no valid session, stay on login
+      } finally {
+        setSessionChecking(false);
+      }
+    })();
+  }, []);
+
   useEffect(() => {
     if (!authenticated) return;
     refreshData();
@@ -114,6 +143,19 @@ export default function Admin() {
   };
 
   if (!authenticated) {
+    // Show a brief loading state while checking for an existing session cookie
+    if (sessionChecking) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
+          <Card className="w-full max-w-md">
+            <CardContent className="py-8">
+              <p className="text-center text-muted-foreground">Checking session...</p>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
         <Card className="w-full max-w-md">
@@ -162,7 +204,14 @@ export default function Admin() {
               {status ? `v${status.version} · Uptime: ${formatUptime(status.uptime_seconds)}` : "Loading..."}
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setAuthenticated(false)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              await adminLogout();
+              setAuthenticated(false);
+            }}
+          >
             Logout
           </Button>
         </div>
@@ -281,25 +330,31 @@ export default function Admin() {
                   <div className="space-y-2 pt-2">
                     {status.key.private_key_on_disk && (
                       <>
-                        <a
-                          href={getKeyDownloadUrl()}
-                          className="block text-center text-xs bg-gray-100 hover:bg-gray-200 rounded-md py-2"
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => window.open(getKeyDownloadUrl(), "_blank")}
                         >
                           Download Private Key (PEM)
-                        </a>
+                        </Button>
                         <div className="flex gap-2">
-                          <a
-                            href={getKeyQRUrl("private_key_jwk_qr.png")}
-                            className="flex-1 text-center text-xs bg-gray-100 hover:bg-gray-200 rounded-md py-2"
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => setQrModal({ url: getKeyQRUrl("private_key_jwk_qr.png"), label: "Private Key (JWK)" })}
                           >
                             QR (JWK)
-                          </a>
-                          <a
-                            href={getKeyQRUrl("private_key_qr.png")}
-                            className="flex-1 text-center text-xs bg-gray-100 hover:bg-gray-200 rounded-md py-2"
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => setQrModal({ url: getKeyQRUrl("private_key_qr.png"), label: "Private Key (PEM)" })}
                           >
                             QR (PEM)
-                          </a>
+                          </Button>
                         </div>
                       </>
                     )}
@@ -321,6 +376,34 @@ export default function Admin() {
           </Card>
         </div>
       </div>
+
+      {/* QR Code Modal Overlay */}
+      {qrModal && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+          onClick={() => setQrModal(null)}
+        >
+          <div
+            className="bg-white rounded-xl p-6 max-w-sm mx-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold">{qrModal.label}</h3>
+              <button
+                className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+                onClick={() => setQrModal(null)}
+              >
+                &times;
+              </button>
+            </div>
+            <img
+              src={qrModal.url}
+              alt={qrModal.label}
+              className="w-full h-auto rounded"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

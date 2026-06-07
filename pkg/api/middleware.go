@@ -26,6 +26,13 @@ func NewSessionStore(adminToken string) *SessionStore {
 	}
 }
 
+// Logout invalidates a session token.
+func (s *SessionStore) Logout(sessionToken string) {
+	s.mu.Lock()
+	delete(s.sessions, sessionToken)
+	s.mu.Unlock()
+}
+
 // Login validates the admin token and creates a session.
 func (s *SessionStore) Login(providedToken string) (string, bool) {
 	if subtle.ConstantTimeCompare([]byte(providedToken), []byte(s.adminKey)) != 1 {

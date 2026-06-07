@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -194,6 +194,7 @@ export default function Admin() {
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                autoFocus
               />
             </div>
             <Button onClick={handleLogin} disabled={loading || !token} className="w-full">
@@ -240,6 +241,10 @@ export default function Admin() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm">Spooler Metrics</CardTitle>
+              <CardDescription className="text-xs">
+                Real-time print queue stats. Queue depth shows pending jobs out of max capacity.
+                Use this to monitor printer health and job throughput.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               {metrics ? (
@@ -277,6 +282,10 @@ export default function Admin() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm">Printers</CardTitle>
+              <CardDescription className="text-xs">
+                Detected thermal printers. The active printer receives all print jobs.
+                Click <strong>Select</strong> to switch between Mock Printer (stdout logging) and a connected USB printer.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {printers ? (
@@ -320,6 +329,10 @@ export default function Admin() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm">Key Management</CardTitle>
+              <CardDescription className="text-xs">
+                Server encryption keys. The public key is shared with submitters via <code>/key</code>. The private key stays on disk — download or scan the QR code for offline decryption in reader.html.
+                <strong> Rotate</strong> deletes keys and requires a restart.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               {status ? (

@@ -332,7 +332,12 @@ export default function Admin() {
               <CardTitle className="text-sm">Key Management</CardTitle>
               <CardDescription className="text-xs">
                 Server encryption keys. The public key is shared with submitters via <code>/key</code>. The private key stays on disk — download or scan the QR code for offline decryption in reader.html.
-                <strong> Rotate</strong> deletes keys and requires a restart.
+              </CardDescription>
+              <CardDescription className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2 mt-2">
+                <strong>Rotate</strong> deletes keys from disk and requires a server restart to generate new ones.
+                After rotation, <strong>old QR codes cannot be decrypted</strong> by the new key — save the current
+                private key before rotating if you need to decrypt past submissions.
+                Only rotate if you suspect the private key was compromised.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">

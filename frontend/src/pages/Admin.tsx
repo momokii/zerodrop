@@ -209,6 +209,7 @@ export default function Admin() {
             size="sm"
             onClick={async () => {
               await adminLogout();
+              setToken("");
               setAuthenticated(false);
             }}
           >

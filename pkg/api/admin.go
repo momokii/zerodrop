@@ -83,16 +83,23 @@ func NewAdminHandler(
 	printerMgr *printer.PrinterManager,
 	publicKeyPath, privateKeyPath, keyFingerprint string,
 ) *AdminHandler {
+	// Prefer the public key file's mtime as the key generation time.
+	// Falls back to now() if the file doesn't exist yet.
+	generatedAt := time.Now()
+	if fi, err := os.Stat(publicKeyPath); err == nil {
+		generatedAt = fi.ModTime()
+	}
+
 	return &AdminHandler{
-		sessions:       sessions,
-		spoolerMetrics: splr.GetMetrics,
-		printerMgr:     printerMgr,
-		publicKeyPath:  publicKeyPath,
-		privateKeyPath: privateKeyPath,
-		startTime:      time.Now(),
-		keyFingerprint: keyFingerprint,
-		keyGeneratedAt: time.Now(),
-		loginLimiter:   newLoginRateLimiter(),
+		sessions:        sessions,
+		spoolerMetrics:  splr.GetMetrics,
+		printerMgr:      printerMgr,
+		publicKeyPath:   publicKeyPath,
+		privateKeyPath:  privateKeyPath,
+		startTime:       time.Now(),
+		keyFingerprint:  keyFingerprint,
+		keyGeneratedAt:  generatedAt,
+		loginLimiter:    newLoginRateLimiter(),
 	}
 }
 
@@ -167,13 +174,21 @@ func (h *AdminHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
+	// Use the public key file's modification time as the key generation timestamp.
+	// For newly generated keys this is ~now; for reused keys it reflects the
+	// original generation time.
+	generatedAt := h.keyGeneratedAt
+	if fi, err := os.Stat(h.publicKeyPath); err == nil {
+		generatedAt = fi.ModTime()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"version":        "1.1.0",
 		"uptime_seconds": time.Since(h.startTime).Seconds(),
 		"key": map[string]interface{}{
 			"fingerprint":        h.keyFingerprint,
-			"generated_at":       h.keyGeneratedAt.Format(time.RFC3339),
+			"generated_at":       generatedAt.Format(time.RFC3339),
 			"private_key_on_disk": fileExists(h.privateKeyPath),
 		},
 	})
@@ -188,7 +203,7 @@ func (h *AdminHandler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		"total_processed":    m.TotalProcessed,
 		"total_failed":       m.TotalFailed,
 		"last_print_time":    m.LastPrintTime.Format(time.RFC3339),
-		"last_print_ms":      m.LastPrintDuration.Milliseconds(),
+		"last_print_ms":      elapsedSince(m.LastPrintTime, m.TotalProcessed),
 		"spooler_start_time": m.StartTime.Format(time.RFC3339),
 	})
 }
@@ -262,4 +277,13 @@ func (h *AdminHandler) handleKeyRotate(w http.ResponseWriter, r *http.Request) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// elapsedSince returns the number of milliseconds elapsed since the given time.
+// Returns 0 if no events have occurred (zero-value time).
+func elapsedSince(t time.Time, total int64) int64 {
+	if total == 0 || t.IsZero() {
+		return 0
+	}
+	return time.Since(t).Milliseconds()
 }

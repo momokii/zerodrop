@@ -60,7 +60,7 @@
 - QR version header (`ZD1:`) enables forward compatibility
 - Key fingerprinting (SHA-256) provides operator verification against key substitution
 - Frontend uses Web Crypto API (browser-native) — no external crypto libraries
-- All 43 tests passing with race detection enabled (up from 26 in v1.0)
+- All 80 tests passing with race detection enabled (up from 26 in v1.0)
 - `govulncheck` shows no known vulnerabilities
 - Frontend dependencies have only dev-time vulnerabilities (esbuild/vite not in production)
 - Admin auth uses constant-time token comparison with session cookies (default 24h expiry, configurable via `ADMIN_SESSION_TTL`)
@@ -71,9 +71,27 @@
 ## Session History
 
 | Session | Date | Summary |
-|---|---|---|
+|---|---|---|---|
 | 1 | 2026-05-11 | Bootstrap: created full .claude/ agent infrastructure |
 | 2 | 2026-05-11 | PRD creation: drafted and approved PRD-001 for ZeroDrop Terminal v1.0 |
+| 3 | 2026-05-11 | PRD revision v1.1: Frontend stack changed to React + Vite + shadcn/ui |
+| 4 | 2026-05-11 | M-01 implementation: Go module, pkg/crypto, pkg/config |
+| 5 | 2026-05-11 | M-02 implementation: pkg/api, pkg/spooler, pkg/observability |
+| 6 | 2026-05-11 | M-03 implementation: pkg/printer, static/reader.html |
+| 7 | 2026-05-11 | Standards update: All `.claude/` files updated with Go standards |
+| 8 | 2026-05-12 | M-04 implementation: USB printer auto-detection, health check, Docker |
+| 9 | 2026-05-12 | M-05 implementation: React + Vite + shadcn/ui frontend, Web Crypto API, production build, SPA serving |
+| 10 | 2026-05-23 | ECIES crypto chain: real X25519 ECDH + AES-256-GCM, QR ESC/POS rasterization, health 503, payload 250→400 |
+| 11 | 2026-05-24 | SPKI public key format fix, LOG_ENABLED confirmed, docs audit |
+| 12 | 2026-05-24 | Traefik removal, Docker-only deployment Makefile, docs cleanup |
+| 13 | 2026-05-24 | Rate limiter middleware, 429 responses, reverse proxy recommendation |
+| 14-16 | 2026-05-25 | Bug fixes (make dev foreground, health check wget), Docker frontend build |
+| 17-20 | 2026-05-28 | Non-secure context detection, TLS self-signed cert, TLS error suppression, PKCS#8 DER fix |
+| 21 | 2026-05-30 | JWK format switch, log ordering fix, fingerprint independence, paste listeners |
+| 22 | 2026-05-31 | PEM non-blocking fallback, raw base64 paste support, extractJWK label handling |
+| 23 | 2026-06-04 | Docker .env fix, QR interleaving fix, PNG QR files, dual PEM+JWK QR, v1.1 plan written |
+| 24 | 2026-06-06 | v1.1 implementation complete on feature/v1.1-admin-dashboard. 80 tests passing. |
+| 25 | 2026-06-08 | Doc audit: fixed test counts (43→80), updated project structure, README, OVERVIEW, ENVIRONMENT_GUIDE, SECURITY_STANDARDS, PRD; added missing env vars and v1.1 feature descriptions. All docs now reflect v1.1 state. |
 | 3 | 2026-05-11 | PRD revision v1.1: Frontend stack changed to React + Vite + shadcn/ui |
 | 4 | 2026-05-11 | M-01 implementation: Go module, pkg/crypto, pkg/config |
 | 5 | 2026-05-11 | M-02 implementation: pkg/api, pkg/spooler, pkg/observability |
@@ -94,7 +112,7 @@
 ## Codebase Statistics
 
 - **Total packages**: 8 Go packages (added `pkg/qr/`) + 1 React frontend
-- **Total tests**: 43 passing (Go backend) — up from 26 in v1.0
+- **Total tests**: 80 passing (Go backend) — up from 26 in v1.0
 - **Go dependencies**: 2 (gorilla/mux, skip2/go-qrcode)
 - **Frontend dependencies**: 343 packages (344 with audit) + 257KB jsQR offline library
 - **Vulnerabilities**: 0 Go, 2 moderate (frontend dev-time only)
@@ -403,4 +421,4 @@ The shift from ephemeral to persistent keys was operationally necessary (restart
 
 ### Last Updated
 
-2026-06-07 — **v1.1 docs finalized**: All documentation updated with persistent key rationale. README.md Security Model section expanded with "Why Persistent Keys Don't Compromise Security". PRD updated with v1.1 overrides (NFR-S-004, NFR-D-005). decisions log and CURRENT_STATUS.md updated. 43 tests passing. Ready for merge to main.
+2026-06-08 — **Doc audit (session 25)**: Fixed stale test counts (43→80) across all docs. Updated README.md project structure (added `pages/`, spooler test files). Added missing env vars (`ADMIN_SESSION_TTL`, `TLS_ENABLED`) to ENVIRONMENT_GUIDE.md and SECURITY_STANDARDS.md. Added v1.1 features (admin dashboard, persistent keys) to OVERVIEW.md. Fixed Traefik reference in PRD. All docs now reflect v1.1 state. 80 tests passing.

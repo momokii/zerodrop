@@ -2,7 +2,7 @@
 
 **Version:** 1.1
 **Status:** Revised
-**Last Updated:** 2026-05-11
+**Last Updated:** 2026-06-08
 
 ## Revision History
 
@@ -10,6 +10,7 @@
 |---------|------|---------|
 | 1.0 | 2026-05-11 | Initial PRD creation |
 | 1.1 | 2026-05-11 | Revised frontend stack: Vanilla JS → React + Vite + shadcn/ui |
+| 1.1 (impl) | 2026-06-08 | v1.1 implementation: persistent key pairs, admin dashboard, spooler metrics, PrinterManager, admin auth, key grant step-up, QR key scan; Traefik removed (Docker-only deployment) |
 
 ---
 
@@ -17,7 +18,7 @@
 
 ZeroDrop Terminal v1.0 is the initial implementation of an air-gapped, zero-knowledge secure credential delivery terminal. The system enables users to encrypt sensitive data (passwords, API keys, security reports) in their browser, transmit it to a server that cannot decrypt it, and receive the ciphertext as a physical QR code printout. Recipients decrypt the printout offline using a standalone HTML file and a private key that never touched the server.
 
-This PRD covers building the entire system from the ground up: cryptographic backend (Go), hardware abstraction layer (ESC/POS thermal printer), asynchronous spooler, submission portal (React + shadcn/ui), offline reader, and infrastructure (Docker Compose + Traefik). The zero-knowledge guarantee is non-negotiable: the server must never possess the plaintext payload or the private key at any point in the data flow.
+This PRD covers building the entire system from the ground up: cryptographic backend (Go), hardware abstraction layer (ESC/POS thermal printer), asynchronous spooler, submission portal (React + shadcn/ui), offline reader, and infrastructure (Docker Compose). The zero-knowledge guarantee is non-negotiable: the server must never possess the plaintext payload or the private key at any point in the data flow.
 
 ---
 

@@ -94,7 +94,7 @@ If any answer is "no", fix it before ending the session.
 | **Offline Reader** | `static/reader.html` + jsQR + Web Crypto | ✅ Implemented (standalone Docker: `Dockerfile.reader`) |
 | **Infrastructure** | Docker Compose | ✅ Implemented |
 | **Hardware** | 58mm thermal printer (ESC/POS), USB connectivity | ✅ Supported |
-| **Testing** | Go testing framework + Mock Printer for CI | ✅ 43 tests passing |
+| **Testing** | Go testing framework + Mock Printer for CI | ✅ 80 tests passing |
 
 ### Architecture
 
@@ -131,7 +131,7 @@ If any answer is "no", fix it before ending the session.
 
 - **PRD**: `docs/prd/PRD-001-zerodrop-terminal-v1.0.md` (complete)
 - **Overview**: `docs/OVERVIEW.md` (stakeholder-friendly explanation)
-- **Decisions Log**: `.claude/state/DECISIONS_LOG.md` (31 decisions recorded)
+- **Decisions Log**: `.claude/state/DECISIONS_LOG.md` (40 decisions recorded)
 - **Task Queue**: `.claude/state/TASK_QUEUE.md` (5 milestones + 7 v1.1 tasks, all complete)
 - **Standards**: All `.claude/` files updated with Go-specific conventions
 
@@ -230,4 +230,5 @@ curl -s http://localhost:8080/health
 | 21 | 2026-05-30 | JWK format switch (X25519 Web Crypto compat), log ordering fix, fingerprint independence, paste listeners, cache busting reader URL |
 | 22 | 2026-05-31 | PEM non-blocking fallback, raw base64 paste support, extractJWK label handling, Makefile docker-up-rebuild target |
 | 23 | 2026-06-04 | Docker .env fix, QR interleaving fix (log.SetOutput stdout), PNG QR files, dual PEM+JWK QR, compact QR renderer (half-block), v1.1 admin dashboard plan written to docs/plans/, all .claude/ state files updated for v1.1 |
-| 24 | 2026-06-06 | v1.1 implementation complete on `feature/v1.1-admin-dashboard`: persistent key storage, spooler metrics (thread-safe), PrinterManager with PrinterProvider interface, admin auth (token + session cookies + login rate limiting), admin API (8 endpoints), admin dashboard (/admin React page), private key QR scan in reader.html. 43 tests passing. All .claude/ docs updated for v1.1. |
+| 24 | 2026-06-06 | v1.1 implementation complete on `feature/v1.1-admin-dashboard`: persistent key storage, spooler metrics (thread-safe), PrinterManager with PrinterProvider interface, admin auth (token + session cookies + login rate limiting), admin API (8 endpoints), admin dashboard (/admin React page), private key QR scan in reader.html. 80 tests passing. All .claude/ docs updated for v1.1. |
+| 25 | 2026-06-08 | Doc audit: fixed test counts (43→80), updated project structure, README, OVERVIEW, ENVIRONMENT_GUIDE, SECURITY_STANDARDS, PRD; added missing env vars and v1.1 feature descriptions. All docs now reflect v1.1 state. |

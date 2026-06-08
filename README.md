@@ -164,15 +164,15 @@ zerodrop/
 │   ├── api/
 │   │   ├── server.go            # HTTP server, route handlers, SPA serving, health 503, admin routes
 │   │   ├── admin.go             # Admin API: status, metrics, printer mgmt, key mgmt, rate-limited login
-│   │   ├── admin_test.go        # Admin API tests (6 test cases)
+│   │   ├── admin_test.go        # Admin API tests (9 test cases)
 │   │   ├── middleware.go        # Session-based admin auth, RequireAuth middleware
-│   │   └── middleware_test.go   # Auth middleware tests (5 test cases)
+│   │   └── middleware_test.go   # Auth middleware tests (8 test cases)
 │   ├── config/
 │   │   ├── config.go            # Environment variable loading and validation
 │   │   └── config_test.go       # Config tests (9 test cases)
 │   ├── crypto/
 │   │   ├── crypto.go            # X25519 key generation, PEM, Burn Protocol, fingerprinting
-│   │   └── crypto_test.go       # Crypto tests (6 test cases)
+│   │   └── crypto_test.go       # Crypto tests (9 test cases)
 │   ├── observability/
 │   │   └── observability.go     # Structured JSON logger, shutdown handler
 │   ├── printer/
@@ -187,13 +187,17 @@ zerodrop/
 │   │   └── qr.go                # QR code generation + ESC/POS GS v 0 rasterization
 │   └── spooler/
 │       ├── spooler.go           # Buffered channel worker pool, retry logic, memory zeroing, PrinterProvider
-│       └── metrics.go           # Thread-safe spooler metrics (processed, failed, depth, duration)
+│       ├── metrics.go           # Thread-safe spooler metrics (processed, failed, depth, duration)
+│       ├── metrics_test.go      # Spooler metrics tests (8 test cases)
+│       └── spooler_test.go      # Spooler tests (23 test cases)
 ├── frontend/
 │   ├── src/
 │   │   ├── main.tsx             # React entry point (routes /admin to Admin, else App)
 │   │   ├── App.tsx              # Main application (encrypt → submit → success flow)
-│   │   ├── Admin.tsx            # Admin dashboard (status, metrics, printers, key mgmt)
 │   │   ├── index.css            # Tailwind CSS with shadcn/ui theme variables
+│   │   ├── pages/
+│   │   │   ├── Admin.tsx        # Admin dashboard (status, metrics, printers, key mgmt)
+│   │   │   └── NotFound.tsx     # 404 fallback page
 │   │   ├── vite-env.d.ts        # Environment type declarations
 │   │   ├── lib/
 │   │   │   ├── api.ts           # API client (fetchPublicKey, submitPayload, checkHealth)
@@ -820,9 +824,11 @@ make ci
 |---------|-------|-------------|
 | `pkg/config` | 9 | Default values, env var parsing, validation of printer type, device path, rate limits, log flag |
 | `pkg/crypto` | 9 | Key pair generation, PEM file save, QR logging, Burn Protocol memory zeroing, fingerprint format, key initialization, key reuse, key rotation, private key save |
-| `pkg/printer` | 3 test files (20 tests) | Mock printer operations, USB printer auto-detection, health check, device identification, PrinterManager detect/switch/list |
+| `pkg/printer` | 3 test files (20 tests, 6 skipped — USB hw) | Mock printer operations, USB printer auto-detection, health check, device identification, PrinterManager detect/switch/list |
 | `pkg/qr` | — | QR code generation + ESC/POS rasterization (no test file yet) |
-| `pkg/api` | 2 test files (11 tests) | Admin login (success/fail/rate-limited), status, metrics, printers, key download, session management, auth middleware |
+| `pkg/api` | 2 test files (17 tests) | Admin login (success/fail/rate-limited), status, metrics, printers, key download, session management, auth middleware |
+| `pkg/spooler` | 2 test files (31 tests) | Thread-safe metrics (queue depth, processed/failed, duration), concurrency, retry lifecycle, graceful drain, memory zeroing, PrinterProvider switching |
+| `pkg/observability` | — | Structured JSON logger, shutdown handler (no test file yet) |
 | Integration | — | Server startup, health endpoint (including 503), key endpoint |
 
 ---

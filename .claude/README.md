@@ -39,7 +39,7 @@ Any agent arriving at this project cold **must** read these files in this exact 
 ├── state/
 │   ├── CURRENT_STATUS.md     # Living state: done / in progress / blocked
 │   ├── TASK_QUEUE.md         # 5 implementation milestones (ALL DONE ✅)
-│   └── DECISIONS_LOG.md      # Record of 38 decisions from PRD + v1.0 + v1.1 implementation
+│   └── DECISIONS_LOG.md      # Record of 40 decisions from PRD + v1.0 + v1.1 implementation
 └── templates/
     ├── new_feature.md        # Checklist: implementing a new feature
     ├── new_endpoint.md       # Checklist: adding an API endpoint
@@ -178,7 +178,7 @@ This is not optional. Keeping `.claude/` accurate is part of every task.
 
 ### Test Coverage
 
-- **Total tests**: 43 passing
+- **Total tests**: 80 passing
 - **Race detection**: Clean (`go test -race ./...`)
 - **Vulnerabilities**: 0 (govulncheck clean)
 - **Coverage**: Good for security-critical packages

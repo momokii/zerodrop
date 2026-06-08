@@ -1,6 +1,6 @@
 # Environment Guide — ZeroDrop Terminal
 
-> Environment definitions and agent behavior for ZeroDrop Terminal v1.0/v1.1.
+> Environment definitions and agent behavior for ZeroDrop Terminal v1.1.
 
 ---
 
@@ -69,6 +69,12 @@ KEY_ROTATE=false
 # Admin dashboard authentication token (required for /admin access)
 # Set this in .env — never commit to version control.
 ADMIN_TOKEN=your-secure-random-token-here
+
+# Admin session TTL (default: 24h)
+ADMIN_SESSION_TTL=24h
+
+# Enable built-in self-signed HTTPS (default: false)
+TLS_ENABLED=false
 
 # Rate limiting (default: 5 per hour)
 RATE_LIMIT_REQUESTS_PER_HOUR=5
@@ -230,6 +236,12 @@ PRINTER_TYPE=mock
 
 # Admin dashboard authentication token (required for /admin access)
 # ADMIN_TOKEN=change-me-to-a-secure-random-string
+
+# Admin session TTL (default: 24h)
+# ADMIN_SESSION_TTL=24h
+
+# Enable built-in self-signed HTTPS (default: false)
+# TLS_ENABLED=false
 
 # Rate limiting: requests per IP per hour (default: 5)
 # RATE_LIMIT_REQUESTS_PER_HOUR=5

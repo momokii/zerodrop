@@ -1,6 +1,6 @@
 # Security Standards — ZeroDrop Terminal
 
-> **Mandatory reference document** governing all security decisions for ZeroDrop Terminal v1.0/v1.1.
+> **Mandatory reference document** governing all security decisions for ZeroDrop Terminal v1.1.
 > **Zero-knowledge architecture**: Server must never possess plaintext payload or private key.
 
 ---
@@ -33,7 +33,9 @@
 | `PUBLIC_KEY_PATH` | No | Path to save public key PEM (default: `./data/public_key.pem`) |
 | `PRIVATE_KEY_PATH` | No | Path to save/load private key PEM (default: `./data/private_key.pem`) |
 | `ADMIN_TOKEN` | For admin | Shared secret for admin dashboard auth (set in `.env`) |
+| `ADMIN_SESSION_TTL` | No | Admin session lifetime (Go duration, default: `24h`) |
 | `KEY_ROTATE` | No | Set `true` to force key pair regeneration on next startup (default: `false`) |
+| `TLS_ENABLED` | No | Enable built-in self-signed HTTPS (default: `false`) |
 | `RATE_LIMIT_REQUESTS_PER_HOUR` | No | Per-IP API rate limit (default: 5) |
 | `LOG_ENABLED` | No | Structured logging opt-in (default: false) |
 

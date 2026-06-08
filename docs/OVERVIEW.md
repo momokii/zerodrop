@@ -1,7 +1,7 @@
 # ZeroDrop Terminal — Simple Overview
 
 **Version:** 1.1  
-**Last Updated:** 2026-06-07
+**Last Updated:** 2026-06-08
 
 ---
 
@@ -53,10 +53,23 @@ It works by:
 - Automatic print queue — handles multiple submissions
 - Graceful shutdown — finishes printing before stopping
 
-### 6. Production Ready
+### 6. Admin Dashboard (v1.1)
+- Web UI at `/admin` for monitoring and management
+- Token-based authentication with session cookies
+- Live spooler metrics with auto-refresh
+- Printer management — detect and switch printers at runtime
+- Key management — view fingerprint, download, rotate
+
+### 7. Persistent Key Pair (v1.1)
+- Private key saved to disk on first run (0600 permissions)
+- Survives restarts — old encrypted QR codes remain decryptable
+- Key rotation via `KEY_ROTATE=true` or admin dashboard
+- Burn Protocol still runs — key zeroed from RAM after initial QR display
+
+### 8. Production Ready
 - Docker Compose setup — one command to start
 - Structured logging (optional, privacy-conscious)
-- Health check endpoint for monitoring
+- Health check endpoint with printer status
 
 ---
 
@@ -163,9 +176,10 @@ It works by:
 1. **Zero-Knowledge:** Server never possesses plaintext or private key during operation
 2. **Memory Hygiene:** All sensitive data is zeroed from RAM after use — private key is burned from memory after initial QR display
 3. **Persistent Key:** The key pair is saved to disk (0600 permissions) so previously encrypted data survives restarts, but the private key is never loaded into server RAM after the first boot
-4. **No Database:** Data is never stored — exists only during printing
-5. **Rate Limited:** Built-in per-IP rate limiting (5 req/hr default). Deploy behind a reverse proxy for production-grade protection.
-6. **Forward Compatible:** QR format versioned (`ZD1:`) for future upgrades
+4. **Admin Authentication:** Token-based auth with session cookies (HttpOnly, SameSite), constant-time comparison, login rate-limited (10 attempts/15 min/IP)
+5. **No Database:** Data is never stored — exists only during printing
+6. **Rate Limited:** Built-in per-IP rate limiting (5 req/hr default) + separate admin login rate limiter. Deploy behind a reverse proxy for production-grade protection.
+7. **Forward Compatible:** QR format versioned (`ZD1:`) for future upgrades
 
 ---
 

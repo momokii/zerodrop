@@ -195,6 +195,46 @@ func BurnProtocol(keyPair *KeyPair) {
 	keyPair.PrivateKey = nil
 }
 
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// LoadPublicKeyFromFile loads a SPKI PEM-encoded public key from disk.
+func LoadPublicKeyFromFile(path string) (*ecdh.PublicKey, error) {
+	pemData, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read public key file: %w", err)
+	}
+	block, _ := pem.Decode(pemData)
+	if block == nil || block.Type != "PUBLIC KEY" {
+		return nil, fmt.Errorf("failed to decode PEM block from public key file")
+	}
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse SPKI public key: %w", err)
+	}
+	ecdhPub, ok := pub.(*ecdh.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("public key is not an ECDH key")
+	}
+	return ecdhPub, nil
+}
+
+// SavePrivateKeyToFile saves the private key as PKCS#8 PEM with 0600 permissions.
+func SavePrivateKeyToFile(privateKey *ecdh.PrivateKey, path string) error {
+	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		return fmt.Errorf("failed to marshal private key: %w", err)
+	}
+	block := &pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: pkcs8Bytes,
+	}
+	pemData := pem.EncodeToMemory(block)
+	return os.WriteFile(path, pemData, 0600)
+}
+
 // GetPublicKeyFingerprint returns the SHA-256 hash of the SPKI DER-encoded public key
 // Uses the same SPKI bytes that the frontend sees, so operator and user fingerprints match
 func GetPublicKeyFingerprint(publicKey *ecdh.PublicKey) (string, error) {
@@ -209,20 +249,41 @@ func GetPublicKeyFingerprint(publicKey *ecdh.PublicKey) (string, error) {
 	return fingerprint, nil
 }
 
-// InitializeOrLoadKeyPair tries to load an existing public key,
-// or generates a new key pair if none exists.
+// InitializeOrLoadKeyPair tries to load an existing key pair from disk,
+// or generates a new key pair if none exists. When both key files exist
+// and rotation is not requested, the public key is loaded and the private
+// key stays on disk (never loaded into RAM).
 // All operator-facing output (QR, fingerprint, instructions) is written to
 // stdout to prevent Docker from interleaving stderr log lines.
-func InitializeOrLoadKeyPair(publicKeyPath string, logEnabled bool) (*KeyPair, error) {
-	// Check if public key already exists
-	if _, err := os.Stat(publicKeyPath); err == nil {
-		log.Printf("Existing public key found at %s (will be overwritten)", publicKeyPath)
-		log.Println("Regenerating new key pair (restart always generates fresh keys) ...")
-	} else {
-		log.Println("No existing public key found. Generating new key pair ...")
+func InitializeOrLoadKeyPair(publicKeyPath, privateKeyPath string, keyRotate, logEnabled bool) (*KeyPair, error) {
+	pubExists := fileExists(publicKeyPath)
+	privExists := fileExists(privateKeyPath)
+
+	if pubExists && privExists && !keyRotate {
+		log.Println("Existing key pair found. Reusing (set KEY_ROTATE=true to regenerate).")
+
+		publicKey, err := LoadPublicKeyFromFile(publicKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load existing public key: %w", err)
+		}
+
+		fingerprint, _ := GetPublicKeyFingerprint(publicKey)
+		fmt.Fprintf(os.Stdout, "Reusing existing key pair (fingerprint: %s)\n", fingerprint)
+		fmt.Fprintln(os.Stdout, "Private key is on disk. Download via admin dashboard if needed.")
+
+		return &KeyPair{
+			PublicKey:  publicKey,
+			PrivateKey: nil,
+		}, nil
 	}
 
-	// Generate new key pair
+	// First run or rotation requested
+	if keyRotate {
+		log.Println("KEY_ROTATE=true: forcing new key pair generation...")
+	} else {
+		log.Println("No existing key pair found. Generating new key pair...")
+	}
+
 	keyPair, err := GenerateKeyPair()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate key pair: %w", err)
@@ -232,6 +293,12 @@ func InitializeOrLoadKeyPair(publicKeyPath string, logEnabled bool) (*KeyPair, e
 	err = SavePublicKeyToFile(keyPair.PublicKey, publicKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save public key: %w", err)
+	}
+
+	// Save private key to disk (0600)
+	err = SavePrivateKeyToFile(keyPair.PrivateKey, privateKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save private key: %w", err)
 	}
 
 	// Determine directory for saving private key QR PNG (same dir as public key)
@@ -254,8 +321,8 @@ func InitializeOrLoadKeyPair(publicKeyPath string, logEnabled bool) (*KeyPair, e
 
 	// Post-QR instructions — also go to stdout so they stay grouped with the QR
 	fmt.Fprintf(os.Stdout, "PUBLIC_KEY_FINGERPRINT: %s\n", fingerprintStr)
-	fmt.Fprintln(os.Stdout, "Key pair generated. IMPORTANT: Scan the QR above and save it securely.")
-	fmt.Fprintln(os.Stdout, "The private key will be destroyed from this server after this message.")
+	fmt.Fprintln(os.Stdout, "Key pair generated. IMPORTANT: Save the private key QR above.")
+	fmt.Fprintln(os.Stdout, "The private key will be burned from server memory after this message.")
 
 	return keyPair, nil
 }

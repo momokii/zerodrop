@@ -42,7 +42,9 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 - **Zero-Knowledge Encryption** — Messages are encrypted in the browser before transmission. The server never possesses plaintext or the private key.
 - **Physical QR Code Output** — Encrypted payloads are printed as scannable QR codes on 58mm thermal paper via ESC/POS protocol.
 - **Ephemeral Processing** — No database. Data exists in RAM only during the print job, then is securely zeroed.
-- **Burn Protocol** — The private key is generated at startup, logged for the operator as a scannable QR code, then destroyed from server memory.
+- **Admin Dashboard** — Monitor spooler metrics, manage printers, and handle key rotation from a web UI at `/admin`.
+- **Persistent Key Pair** — Private key saved to disk on first run (0600), reused across restarts. Burn Protocol only runs on initial generation.
+- **Burn Protocol** — On first run, the private key is saved to disk (0600), logged as a scannable QR code for the operator, then destroyed from server memory. On subsequent starts, only the public key is loaded.
 - **Offline Decryption** — Recipients use `static/reader.html` with jsQR camera scanning and real X25519 ECDH + AES-256-GCM decryption — no external dependencies, no network calls.
 - **Asynchronous Print Spooler** — Buffered Go channel worker pool with retry logic (3 attempts, exponential backoff) and graceful shutdown draining.
 - **Hardware Abstraction** — Supports Mock Printer (stdout logging) and USB Printer (auto-detection of 10+ models with graceful fallback).
@@ -78,9 +80,10 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 │                                                        │
 │  ┌──────────────────────────────────────────────────┐ │
 │  │  Crypto (server-side)                             │ │
-│  │  • Generate X25519 key pair on startup            │ │
-│  │  • Log private key as QR to stdout (operator)     │ │
+│  │  • Generate X25519 key pair on first run          │ │
+│  │  • Save private key to disk (0600), show QR       │ │
 │  │  • Burn Protocol: zero private key from memory    │ │
+│  │  • Subsequent starts: load public key only        │ │
 │  │  • SHA-256 public key fingerprint for verification│ │
 │  └──────────────────────────────────────────────────┘ │
 └──────────────────────┬───────────────────────────────┘
@@ -110,8 +113,8 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 | Decision | Rationale |
 |----------|-----------|
 | **No database** | Eliminates persistent attack surface. Data exists only during the print job. |
-| **Burn Protocol** | Server generates a key pair, logs the private key for the operator, then destroys it. Uses `runtime.KeepAlive()` to prevent compiler optimization of the zeroing. |
-| **Ephemeral key per restart** | Each server restart generates a fresh key pair. Old ciphertexts can only be decrypted by the corresponding private key. |
+| **Burn Protocol** | On first run, the private key is displayed as a QR code, then explicitly zeroed from RAM using `runtime.KeepAlive()` to prevent compiler optimization. |
+| **Persistent key pair (v1.1)** | The key pair is saved to disk and reused across restarts. Previously (v1.0), every restart generated fresh keys, rendering all previous ciphertext undecryptable. Now previously encrypted data remains readable after reboot. Operators can force regeneration with `KEY_ROTATE=true`. |
 | **ZD1: payload prefix** | Forward-compatible version header for the QR payload format. |
 | **Dual API paths** | Both `/api/*` and legacy `/*` routes are supported for backward compatibility. |
 | **Buffered spooler channel** | Non-blocking job submission with 10-job buffer. Returns 503 if spooler is full. |
@@ -121,13 +124,13 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 
 ## How It Works
 
-1. **Operator starts the server** — On first boot, an X25519 key pair is generated. The public key is saved to disk; the private key is logged as a QR code to stdout, then destroyed from memory via the Burn Protocol.
+1. **Operator starts the server** — On first boot, an X25519 key pair is generated. The public key is saved to disk for serving via `GET /key`; the private key is saved to disk (0600 permissions) and displayed as a QR code to stdout for the operator to capture, then immediately destroyed from memory via the Burn Protocol. **On subsequent starts, the existing key pair is reused from disk** — only the public key is loaded into memory for serving. The private key never enters server RAM again after the initial boot. This means all previously encrypted payloads remain decryptable across restarts.
 2. **Submitter opens the web interface** — The React SPA fetches the server's public key (`GET /key`) and displays its SHA-256 fingerprint for verification.
 3. **Submitter encrypts a message** — The plaintext is encrypted in-browser using Web Crypto API (X25519 ECDH) and prefixed with `ZD1:` for versioning.
 4. **Submitter sends the payload** — The encrypted ciphertext is posted to the server (`POST /drop`). The server cannot decrypt it — it only receives the encrypted blob.
 5. **Server queues the print job** — The payload enters a buffered Go channel. A worker picks it up, sends ESC/POS commands to the thermal printer, and prints the QR code.
 6. **Memory is zeroed** — After printing, the payload buffer is securely overwritten in memory.
-7. **Recipient scans and decrypts** — Using `static/reader.html` (fully offline), the recipient scans the QR code with their camera, pastes their private key, and decrypts the message.
+7. **Recipient scans and decrypts** — Using `static/reader.html` (fully offline), the recipient scans the QR code with their camera, imports the private key (via camera QR scan or paste), and decrypts the message.
 
 ---
 
@@ -159,17 +162,23 @@ zerodrop/
 │       └── main.go              # Application entry point, wiring, graceful shutdown
 ├── pkg/
 │   ├── api/
-│   │   └── server.go            # HTTP server, route handlers, SPA serving, health 503
+│   │   ├── server.go            # HTTP server, route handlers, SPA serving, health 503, admin routes
+│   │   ├── admin.go             # Admin API: status, metrics, printer mgmt, key mgmt, rate-limited login
+│   │   ├── admin_test.go        # Admin API tests (9 test cases)
+│   │   ├── middleware.go        # Session-based admin auth, RequireAuth middleware
+│   │   └── middleware_test.go   # Auth middleware tests (8 test cases)
 │   ├── config/
 │   │   ├── config.go            # Environment variable loading and validation
 │   │   └── config_test.go       # Config tests (9 test cases)
 │   ├── crypto/
 │   │   ├── crypto.go            # X25519 key generation, PEM, Burn Protocol, fingerprinting
-│   │   └── crypto_test.go       # Crypto tests (6 test cases)
+│   │   └── crypto_test.go       # Crypto tests (9 test cases)
 │   ├── observability/
 │   │   └── observability.go     # Structured JSON logger, shutdown handler
 │   ├── printer/
-│   │   ├── printer.go           # Printer interface, HealthChecker, Reconnector
+│   │   ├── printer.go           # Printer interface, HealthChecker, Reconnector, PrinterInfo
+│   │   ├── manager.go           # PrinterManager: detect, switch, track active printer
+│   │   ├── manager_test.go      # PrinterManager tests (6 test cases)
 │   │   ├── mock.go              # MockPrinter (QR ESC/POS + hex preview for testing/CI)
 │   │   ├── usb.go               # USBPrinter with auto-detection of 10+ printer models
 │   │   ├── usb_test.go          # USB printer tests
@@ -177,15 +186,22 @@ zerodrop/
 │   ├── qr/
 │   │   └── qr.go                # QR code generation + ESC/POS GS v 0 rasterization
 │   └── spooler/
-│       └── spooler.go           # Buffered channel worker pool, retry logic, memory zeroing
+│       ├── spooler.go           # Buffered channel worker pool, retry logic, memory zeroing, PrinterProvider
+│       ├── metrics.go           # Thread-safe spooler metrics (processed, failed, depth, duration)
+│       ├── metrics_test.go      # Spooler metrics tests (8 test cases)
+│       └── spooler_test.go      # Spooler tests (23 test cases)
 ├── frontend/
 │   ├── src/
-│   │   ├── main.tsx             # React entry point
+│   │   ├── main.tsx             # React entry point (routes /admin to Admin, else App)
 │   │   ├── App.tsx              # Main application (encrypt → submit → success flow)
 │   │   ├── index.css            # Tailwind CSS with shadcn/ui theme variables
+│   │   ├── pages/
+│   │   │   ├── Admin.tsx        # Admin dashboard (status, metrics, printers, key mgmt)
+│   │   │   └── NotFound.tsx     # 404 fallback page
 │   │   ├── vite-env.d.ts        # Environment type declarations
 │   │   ├── lib/
 │   │   │   ├── api.ts           # API client (fetchPublicKey, submitPayload, checkHealth)
+│   │   │   ├── admin-api.ts     # Admin API client (login, status, metrics, printers, key)
 │   │   │   ├── crypto.ts        # Web Crypto API: ECDH key generation, encryption, fingerprint
 │   │   │   └── utils.ts         # Utilities: cn(), clipboard, file download, formatting
 │   │   └── components/
@@ -208,6 +224,8 @@ zerodrop/
 │   └── jsqr.min.js              # jsQR v1.4.0 — local QR decoding for offline reader
 ├── docs/
 │   ├── OVERVIEW.md              # Stakeholder-friendly project overview
+│   ├── plans/
+│   │   └── v1.1-admin-dashboard.md  # v1.1 implementation plan (7 tasks)
 │   └── prd/
 │       └── PRD-001-zerodrop-terminal-v1.0.md  # Product Requirements Document
 ├── data/
@@ -355,7 +373,7 @@ The standalone reader contains no API, no printer, no crypto keys — just a sta
 
 ## API Reference
 
-All API endpoints are available under both `/api/*` and legacy `/*` paths.
+All API endpoints are available under both `/api/*` and legacy `/*` paths. Admin endpoints require authentication (see below).
 
 ### `GET /key`
 
@@ -434,6 +452,63 @@ The `printer` object varies by printer type:
 
 ---
 
+### Admin API (requires authentication)
+
+Admin endpoints are available at `/api/admin/*` when `ADMIN_TOKEN` is configured. Authentication uses session cookies (HttpOnly, SameSite, configurable expiry; default 24h).
+
+#### `POST /api/admin/login`
+
+Authenticates with the admin token and sets a session cookie.
+
+**Request body:**
+```json
+{
+  "token": "your-admin-token"
+}
+```
+
+**Status codes:**
+- `200` — Login successful, session cookie set
+- `401` — Invalid token
+- `429` — Too many login attempts (10 per 15 minutes per IP)
+
+#### `GET /api/admin/status`
+
+Returns server version, uptime, and key information. **Requires auth.**
+
+#### `GET /api/admin/metrics`
+
+Returns spooler metrics (queue depth, processed/failed counts, last print time). **Requires auth.**
+
+#### `GET /api/admin/printers`
+
+Lists all detected printers and the active printer ID. **Requires auth.**
+
+#### `POST /api/admin/printers/active`
+
+Switches the active printer. **Requires auth.**
+
+**Request body:**
+```json
+{
+  "id": "printer-id"
+}
+```
+
+#### `GET /api/admin/key`
+
+Downloads the private key PEM file. **Requires auth.**
+
+#### `GET /api/admin/key/qr?file=private_key_qr.png`
+
+Downloads a QR code image of the private key. **Requires auth.**
+
+#### `POST /api/admin/key/rotate`
+
+Deletes key files and requires a server restart to generate new keys. **Requires auth.**
+
+---
+
 ## Configuration
 
 All configuration is via environment variables.
@@ -443,10 +518,14 @@ All configuration is via environment variables.
 | `PRINTER_TYPE` | **Yes** | — | `mock`, `usb`, `tcp` | Printer implementation |
 | `PRINTER_DEVICE` | No | `""` (auto-detect) | Device path or empty | USB printer device path. Leave empty for auto-detection from `/dev/usb/lp*`, `/dev/usblp*`. Set to explicit path (e.g., `/dev/usb/lp0`) if auto-detection fails or you have multiple printers. |
 | `PUBLIC_KEY_PATH` | No | `./data/public_key.pem` | File path | Where to save/load the public key |
+| `PRIVATE_KEY_PATH` | No | Same dir as `PUBLIC_KEY_PATH` | File path | Where to save the private key (PKCS#8 PEM, 0600). Only set if you need a non-default location. |
 | `RATE_LIMIT_REQUESTS_PER_HOUR` | No | `5` | Integer ≥ 1 | Max requests per IP per hour (built-in rate limiting) |
 | `RATE_LIMIT_BURST` | No | `1` | Integer ≥ 1 | Burst capacity for rate limiter |
 | `LOG_ENABLED` | No | `false` | `true`, `false` | Enable structured JSON logging |
 | `TLS_ENABLED` | No | `false` | `true`, `false` | Enable built-in self-signed HTTPS. See [TLS Configuration](#tls-configuration) for when to enable. |
+| `ADMIN_TOKEN` | No | `""` (disabled) | String | Secret token for admin dashboard. Set to enable `/admin` UI and `/api/admin/*` endpoints. Use `openssl rand -hex 32`. |
+| `ADMIN_SESSION_TTL` | No | `24h` | Go duration | Admin session lifetime. Use `24h`, `30m`, `168h`, etc. Shorter for high-security, longer for dedicated monitoring. |
+| `KEY_ROTATE` | No | `false` | `true`, `false` | Force-generate a new key pair on next startup. Old keys are overwritten. |
 
 **Rate Limiting** — The app enforces per-IP rate limiting using a sliding 1-hour window (default: 5 requests/IP/hour, configurable via `RATE_LIMIT_REQUESTS_PER_HOUR` and `RATE_LIMIT_BURST`). Returns HTTP 429 when exceeded.
 
@@ -477,14 +556,32 @@ The `TLS_ENABLED` variable controls whether ZeroDrop serves HTTPS with a built-i
 
 ### Zero-Knowledge Guarantee
 
-The server **never** possesses either the plaintext payload or the private key needed to decrypt it:
+The server **never** possesses either the plaintext payload or the private key needed to decrypt it at runtime:
 
-1. **Key generation** — On startup, the server generates an X25519 key pair
-2. **Public key distribution** — The public key is served via `GET /key` and saved to disk
-3. **Private key logging** — The private key is logged as a scannable QR code for the operator
-4. **Burn Protocol** — The private key is explicitly zeroed from memory using `runtime.KeepAlive()` to prevent compiler optimization
+1. **Key generation** — On first boot, an X25519 key pair is generated. The public key is saved to disk for serving; the private key is saved to disk (0600), displayed as a QR code, then burned from RAM
+2. **Key persistence** — On subsequent starts, the existing key pair is reused. The private key file remains on disk (0600) but is **never loaded into server memory** after the initial boot. Only the public key is loaded for serving via `GET /key`
+3. **Public key distribution** — The public key is served via `GET /key` and saved to disk
+4. **Burn Protocol** — On first run, the private key is explicitly zeroed from memory using `runtime.KeepAlive()` to prevent compiler optimization
 5. **Client-side encryption** — All encryption happens in the browser using Web Crypto API
 6. **Server ignorance** — The server receives only the encrypted ciphertext, which it cannot decrypt
+
+### Why Persistent Keys Don't Compromise Security
+
+The shift from ephemeral keys (v1.0 — new keys on every restart) to persistent keys (v1.1 — keys saved to disk) was made for a critical operational reason:
+
+> **Ephemeral keys made every restart destructive.** Previously, a fresh key pair was generated on each boot, which meant every previously encrypted payload became permanently undecryptable — the old private key was gone. Operators had to redistribute the new public key every time the server restarted. For any real deployment, this was impractical and error-prone.
+
+**Persistent keys solve this without sacrificing security:**
+
+| Concern | Why It's Still Secure |
+|---------|----------------------|
+| **Private key on disk** | Written once with `0600` permissions (owner-read-only). Equivalent threat profile to SSH host keys, TLS certificates, or any disk-backed secret. If an attacker has root access to read the private key file, the system is already compromised regardless of encryption. |
+| **Private key in memory** | Only loaded into RAM on the **very first boot** for QR display. After that one-time display: zeroed via Burn Protocol. On all subsequent restarts, the private key **never enters server memory** — the server literally cannot load it to decrypt anything. |
+| **Server can now decrypt?** | **No.** The server never loads the private key. It cannot decrypt past or future payloads. The Burn Protocol ensures the key is destroyed from RAM after first use. The key file on disk is inert — the server doesn't open it. |
+| **Key rotation** | Operators can force a fresh key pair at any time with `KEY_ROTATE=true`. Old ciphertext encrypted with the previous key becomes undecryptable after rotation — handle with care. |
+| **Physical server access** | If an attacker gains physical or root access, they can read the private key file — but this is true for **every** system that uses disk-backed secrets (SSH, HTTPS, database encryption). ZeroDrop's threat model assumes the server is in a physically controlled environment. |
+
+**Bottom line:** The zero-knowledge guarantee during active operation is unchanged. The server processes encrypted payloads it cannot read. The private key is never loaded in memory after boot. Persistent keys simply remove the operational nightmare of data loss on every restart.
 
 ### Memory Hygiene
 
@@ -496,7 +593,7 @@ The server **never** possesses either the plaintext payload or the private key n
 
 | Measure | Implementation |
 |---------|---------------|
-| No persistent storage | No database. RAM-only processing. |
+| No database | All processing is RAM-only. No database, no persistent payload storage. |
 | Forward compatibility | All payloads prefixed with `ZD1:` version header |
 | Key fingerprinting | SHA-256 hash of public key printed on startup for operator verification |
 | Rate limiting | Built-in per-IP rate limiting (5 req/hr default). Deploy behind a reverse proxy for production-grade rate limiting, TLS, and security hardening. |
@@ -510,7 +607,8 @@ The server **never** possesses either the plaintext payload or the private key n
 
 | Threat | Mitigation |
 |--------|-----------|
-| Server compromise | Server cannot decrypt stored payloads (no private key) |
+| Server compromise | Server cannot decrypt stored payloads — private key never loaded into RAM |
+| Private key file theft (root access) | Private key on disk at `0600` permissions. If attacker has root, all secrets are exposed — equivalent to SSH/TLS key theft on any system. Mitigated by physical security, file permissions, and `KEY_ROTATE=true` for key refresh. |
 | Network interception | Payload is encrypted before transmission |
 | Physical printer access | Only ciphertext is printed; no plaintext exposed |
 | Database breach | No database exists |
@@ -725,9 +823,12 @@ make ci
 | Package | Tests | Key Coverage |
 |---------|-------|-------------|
 | `pkg/config` | 9 | Default values, env var parsing, validation of printer type, device path, rate limits, log flag |
-| `pkg/crypto` | 6 | Key pair generation, PEM file save, QR logging, Burn Protocol memory zeroing, fingerprint format, key initialization |
-| `pkg/printer` | 2 test files (14 tests) | Mock printer operations, USB printer auto-detection, health check, device identification |
+| `pkg/crypto` | 9 | Key pair generation, PEM file save, QR logging, Burn Protocol memory zeroing, fingerprint format, key initialization, key reuse, key rotation, private key save |
+| `pkg/printer` | 3 test files (20 tests, 6 skipped — USB hw) | Mock printer operations, USB printer auto-detection, health check, device identification, PrinterManager detect/switch/list |
 | `pkg/qr` | — | QR code generation + ESC/POS rasterization (no test file yet) |
+| `pkg/api` | 2 test files (17 tests) | Admin login (success/fail/rate-limited), status, metrics, printers, key download, session management, auth middleware |
+| `pkg/spooler` | 2 test files (31 tests) | Thread-safe metrics (queue depth, processed/failed, duration), concurrency, retry lifecycle, graceful drain, memory zeroing, PrinterProvider switching |
+| `pkg/observability` | — | Structured JSON logger, shutdown handler (no test file yet) |
 | Integration | — | Server startup, health endpoint (including 503), key endpoint |
 
 ---
@@ -811,6 +912,8 @@ The `static/reader.html` file is a standalone, fully offline decryption tool:
 - **Camera QR scanning** — Uses jsQR v1.4.0 (saved locally as `static/jsqr.min.js`) to decode QR codes from the device camera via WebRTC `getUserMedia`
 - **Real ECDH decryption** — Implements full X25519 ECDH + AES-256-GCM decryption using Web Crypto API (same algorithm as the submission portal)
 - **PEM key import** — Supports importing private keys in PEM format (PKCS#8) with proper binary DER parsing
+- **JWK key import** — Supports importing private keys in JWK format (generated by admin QR codes)
+- **Private key QR scanning** — Scan the private key QR code directly from camera (supports both PEM and JWK formats)
 - **Zero network calls** — Opens and works entirely offline after the initial page load
 - **Key fingerprinting** — Displays the SHA-256 fingerprint of the derived public key for verification
 
@@ -956,6 +1059,6 @@ MIT License — See [LICENSE](./LICENSE) file for details.
 ---
 
 <div align="center">
-<strong>ZeroDrop Terminal v1.0</strong> — Zero-Knowledge Secure Credential Delivery<br>
+<strong>ZeroDrop Terminal v1.1</strong> — Zero-Knowledge Secure Credential Delivery<br>
 Built with Go, React, Web Crypto API, and ESC/POS thermal printers.
 </div>

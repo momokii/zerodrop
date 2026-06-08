@@ -1,6 +1,6 @@
 # Environment Guide — ZeroDrop Terminal
 
-> Environment definitions and agent behavior for ZeroDrop Terminal v1.0.
+> Environment definitions and agent behavior for ZeroDrop Terminal v1.1.
 
 ---
 
@@ -56,8 +56,25 @@ PRINTER_DEVICE=/dev/usb/lp0
 ### Optional Variables
 
 ```bash
-# Public key output path (default: public_key.pem)
-PUBLIC_KEY_PATH=./public_key.pem
+# Public key output path (default: ./data/public_key.pem)
+PUBLIC_KEY_PATH=./data/public_key.pem
+
+# Private key path (default: ./data/private_key.pem)
+# Private key is saved on first run and reused across restarts.
+PRIVATE_KEY_PATH=./data/private_key.pem
+
+# Force key pair regeneration (default: false)
+KEY_ROTATE=false
+
+# Admin dashboard authentication token (required for /admin access)
+# Set this in .env — never commit to version control.
+ADMIN_TOKEN=your-secure-random-token-here
+
+# Admin session TTL (default: 24h)
+ADMIN_SESSION_TTL=24h
+
+# Enable built-in self-signed HTTPS (default: false)
+TLS_ENABLED=false
 
 # Rate limiting (default: 5 per hour)
 RATE_LIMIT_REQUESTS_PER_HOUR=5
@@ -208,8 +225,23 @@ PRINTER_TYPE=mock
 # USB device path (required if PRINTER_TYPE=usb)
 # PRINTER_DEVICE=/dev/usb/lp0
 
-# Public key output path (default: public_key.pem)
-# PUBLIC_KEY_PATH=./public_key.pem
+# Public key output path (default: ./data/public_key.pem)
+# PUBLIC_KEY_PATH=./data/public_key.pem
+
+# Private key path (default: ./data/private_key.pem)
+# PRIVATE_KEY_PATH=./data/private_key.pem
+
+# Force key pair regeneration on next startup (default: false)
+# KEY_ROTATE=false
+
+# Admin dashboard authentication token (required for /admin access)
+# ADMIN_TOKEN=change-me-to-a-secure-random-string
+
+# Admin session TTL (default: 24h)
+# ADMIN_SESSION_TTL=24h
+
+# Enable built-in self-signed HTTPS (default: false)
+# TLS_ENABLED=false
 
 # Rate limiting: requests per IP per hour (default: 5)
 # RATE_LIMIT_REQUESTS_PER_HOUR=5

@@ -113,6 +113,35 @@ export function validatePayload(payload: string): { valid: boolean; error?: stri
 }
 
 /**
+ * Maximum payload length (in chars including ZD1: prefix) that can be
+ * printed as a QR code on 58mm thermal paper. The server enforces this
+ * limit — encryption itself has no restriction. Messages exceeding this
+ * can still be encrypted and the ciphertext delivered via side-channel
+ * (USB, email, etc.) for offline decryption in reader.html.
+ */
+export const MAX_PRINT_PAYLOAD = 400;
+
+/**
+ * Estimate the full encrypted payload size (including ZD1: prefix) from
+ * a plaintext string, BEFORE actual encryption. Used to warn the user
+ * whether their message will fit the print limit.
+ *
+ * ECIES overhead per encryptData():
+ *   - Ephemeral X25519 raw pubkey: 32 bytes
+ *   - AES-256-GCM IV: 12 bytes
+ *   - GCM authentication tag: 16 bytes
+ *   - Total overhead: 60 bytes (fixed)
+ *   - base64 length: ceil((60 + plaintextBytes) / 3) * 4
+ *   - Final: "ZD1:" (4) + base64 length
+ */
+export function estimatePayloadSize(plaintext: string): number {
+  const bytes = new TextEncoder().encode(plaintext).length;
+  const decodedLen = 60 + bytes; // 32 eph key + 12 iv + 16 tag + plaintext
+  const b64Len = Math.ceil(decodedLen / 3) * 4;
+  return 4 + b64Len; // "ZD1:" + base64
+}
+
+/**
  * Estimate QR code size based on payload length
  * Returns approximate QR code version (1-40)
  */

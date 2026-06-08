@@ -314,6 +314,46 @@
 
 ---
 
+**Decision:** v1.1-D004 Spooler PrinterProvider Interface — Per-Job Printer Resolution
+**Date:** 2026-06-06
+**Context:** v1.0 spooler held a direct `Printer` reference. With PrinterManager supporting runtime printer switching, the spooler needed to resolve the active printer at job time, not at spooler creation time.
+**Rationale:** Introduced `PrinterProvider` interface (`GetPrinter() Printer`) in the spooler package. The spooler stores a `PrinterProvider` instead of a `Printer`. On each job, it calls `GetPrinter()` to resolve the current active printer from the PrinterManager. This decouples the spooler from printer lifecycle changes.
+**Alternatives Rejected:** Storing direct printer reference (would become stale on switch), restarting spooler on printer change (disrupts in-flight jobs), global mutable printer variable (race conditions).
+**Security Implications:** Neutral — printer resolution is internal plumbing. Admin auth still required for printer switching.
+**Impact:** `pkg/spooler/spooler.go` stores `PrinterProvider` instead of `Printer`. `PrinterManager` implements `PrinterProvider`.
+
+---
+
+**Decision:** v1.1-D005 Login Rate Limiting — Per-IP Sliding Window
+**Date:** 2026-06-06
+**Context:** Admin login endpoint accepts a token. Without rate limiting, an attacker on the LAN could brute-force the admin token.
+**Rationale:** Added per-IP sliding window rate limiter to the login endpoint: 10 attempts per 15 minutes per source IP. Implemented in `pkg/api/middleware.go` using an in-memory map with mutex. Returns HTTP 429 when exceeded. Separate from the global API rate limiter.
+**Alternatives Rejected:** No login rate limiting (brute force risk), exponential backoff (complex for LAN-only deployment), CAPTCHA (overkill for air-gapped terminal).
+**Security Implications:** Positive — prevents brute-force token guessing. 10 attempts per 15 minutes gives operators reasonable retry room while blocking automated attacks.
+**Impact:** `pkg/api/middleware.go` login rate limiter. Returns 429 with remaining time in response body.
+
+---
+
+**Decision:** v1.1-D006 Admin API Endpoint Design — 8 Endpoints at /api/admin/*
+**Date:** 2026-06-06
+**Context:** Needed a complete admin API for dashboard functionality covering auth, monitoring, printer management, and key management.
+**Rationale:** Designed 8 endpoints with clear REST semantics: `POST /api/admin/login` (auth), `GET /api/admin/status` (system overview), `GET /api/admin/metrics` (spooler stats), `GET /api/admin/printers` (detected printers), `POST /api/admin/printers/active` (switch printer), `GET /api/admin/key` (key info + download), `GET /api/admin/key/qr` (key as QR PNG), `POST /api/admin/key/rotate` (force rotation). All except login require valid session cookie.
+**Alternatives Rejected:** GraphQL (overkill), single status endpoint (too much data per request), WebSocket for metrics (added complexity, 5s polling sufficient).
+**Security Implications:** Key download and QR endpoints expose the private key over admin session — acceptable because admin already has disk access on the server. All endpoints behind session auth.
+**Impact:** `pkg/api/admin.go` implements all 8 handlers. Routes registered in `pkg/api/server.go`.
+
+---
+
+**Decision:** v1.1-D007 Session Cookie Design — HttpOnly, SameSite, 24h Expiry
+**Date:** 2026-06-06
+**Context:** Admin auth needed session management. Cookie-based sessions are simpler than JWT for single-server LAN deployment.
+**Rationale:** Session cookies are HMAC-signed with a server-generated secret. Cookies set with `HttpOnly` (no JS access), `SameSite=Lax` (CSRF protection), `Path=/api/admin` (scoped to admin routes). 24-hour expiry with server-side tracking. No refresh mechanism — operator re-logs in after expiry.
+**Alternatives Rejected:** JWT (stateless but harder to revoke, overkill for single server), localStorage token (XSS-vulnerable), no expiry (indefinite sessions are insecure).
+**Security Implications:** Positive — HttpOnly prevents XSS token theft, SameSite mitigates CSRF, server-side tracking enables future revocation.
+**Impact:** `pkg/api/middleware.go` session creation and validation. Cookie-scoped to `/api/admin` path.
+
+---
+
 **Decision:** v1.1-D003 PrinterManager — Runtime Printer Detection & Selection
 **Date:** 2026-06-04
 **Context:** v1.0 supports a single printer (auto-detect or mock). Operators with multiple printers need to select which one is active without restarting.
@@ -321,3 +361,13 @@
 **Alternatives Rejected:** Keep single printer (limits flexibility), external config file for printer selection (operational burden), printer pooling (overkill for thermal printers that can't handle concurrent jobs).
 **Security Implications:** Neutral — printer selection is admin-only (requires auth). No sensitive data in printer info.
 **Impact:** New `pkg/printmgr/printmgr.go`. Spooler modified to get printer from manager. Admin API for printer listing and switching.
+
+---
+
+**Decision:** v1.1-D001 Persistent Key Pair Storage
+**Date:** 2026-06-04
+**Context:** v1.0 generated a fresh key pair on every server restart, which destroyed access to all previously encrypted payloads. This made the system unusable in practice — a simple container restart (deploy, power outage, maintenance) would invalidate every delivered credential. Operators also had to redistribute the new public key after each reboot.
+**Rationale:** Save the private key to disk (0600) on first run so it survives restarts. The Burn Protocol still runs — the key is zeroed from RAM after the one-time QR display. On subsequent starts, the server loads only the public key; the private key never enters memory. This preserves the zero-knowledge guarantee during operation while eliminating the catastrophic data-loss-on-restart problem.
+**Alternatives Rejected:** Ephemeral keys every restart (v1.0 — data loss on reboot), HSM/TPM backing (overkill for a thermal printer terminal), operator must re-upload key on each restart (operational burden, human error risk).
+**Security Implications:** The private key file on disk (0600) is inert during operation — the server never opens it. Root access could read it, but that's true for ALL disk-backed secrets (SSH, TLS, database). The zero-knowledge guarantee during submission/printing is unchanged. Key rotation available via `KEY_ROTATE=true`.
+**Impact:** `pkg/crypto` modified to save private key to disk. `InitializeOrLoadKeyPair()` loads existing keys on subsequent starts. Burn Protocol changed to memory-only (disk file preserved).

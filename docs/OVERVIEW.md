@@ -1,7 +1,7 @@
 # ZeroDrop Terminal — Simple Overview
 
-**Version:** 1.0  
-**Last Updated:** 2026-05-24
+**Version:** 1.1  
+**Last Updated:** 2026-06-08
 
 ---
 
@@ -16,7 +16,7 @@ ZeroDrop is a **secure credential delivery terminal** that lets you send sensiti
 It works by:
 1. **Encrypting** your message in your browser before sending
 2. **Printing** the encrypted message as a QR code on a thermal printer
-3. **Burning** (destroying) the encryption key immediately after
+3. **Burning** (destroying) the encryption key from server memory after the initial QR display — the key file stays on disk (0600 permissions) so it survives restarts without being loaded into RAM
 4. **Recipient** scans the QR code with their phone/computer and decrypts it offline
 
 **The server never sees your plaintext message or the decryption key.** Even if the server is hacked, the data is useless.
@@ -28,7 +28,7 @@ It works by:
 ### 1. Zero-Knowledge Encryption
 - Your message is encrypted in your browser using military-grade cryptography (Curve25519)
 - The server only receives encrypted gibberish — it cannot decrypt your message
-- The decryption key is printed as a QR code, then destroyed from the server
+- The decryption key is printed as a QR code once (on first boot), then destroyed from server memory. The key file stays on disk so previously encrypted messages remain decryptable across restarts — but the server never loads it into RAM again
 
 ### 2. Physical QR Code Printout
 - Encrypted message is printed as a scannable QR code on 58mm thermal paper
@@ -53,10 +53,23 @@ It works by:
 - Automatic print queue — handles multiple submissions
 - Graceful shutdown — finishes printing before stopping
 
-### 6. Production Ready
+### 6. Admin Dashboard (v1.1)
+- Web UI at `/admin` for monitoring and management
+- Token-based authentication with session cookies
+- Live spooler metrics with auto-refresh
+- Printer management — detect and switch printers at runtime
+- Key management — view fingerprint, download, rotate
+
+### 7. Persistent Key Pair (v1.1)
+- Private key saved to disk on first run (0600 permissions)
+- Survives restarts — old encrypted QR codes remain decryptable
+- Key rotation via `KEY_ROTATE=true` or admin dashboard
+- Burn Protocol still runs — key zeroed from RAM after initial QR display
+
+### 8. Production Ready
 - Docker Compose setup — one command to start
 - Structured logging (optional, privacy-conscious)
-- Health check endpoint for monitoring
+- Health check endpoint with printer status
 
 ---
 
@@ -81,7 +94,9 @@ It works by:
 │    data         │
 │ 5. Print QR     │
 │    code         │
-│ 6. Shred key    │
+│ 6. Burn key     │
+│    from RAM     │
+│    (disk stays) │
 └────────┬────────┘
          │
          ▼
@@ -158,11 +173,13 @@ It works by:
 
 ## Security Guarantees
 
-1. **Zero-Knowledge:** Server never possesses plaintext or private key
-2. **Memory Hygiene:** All sensitive data is zeroed from RAM after use
-3. **No Database:** Data is never stored — exists only during printing
-4. **Rate Limited:** Built-in per-IP rate limiting (5 req/hr default). Deploy behind a reverse proxy for production-grade protection.
-5. **Forward Compatible:** QR format versioned (`ZD1:`) for future upgrades
+1. **Zero-Knowledge:** Server never possesses plaintext or private key during operation
+2. **Memory Hygiene:** All sensitive data is zeroed from RAM after use — private key is burned from memory after initial QR display
+3. **Persistent Key:** The key pair is saved to disk (0600 permissions) so previously encrypted data survives restarts, but the private key is never loaded into server RAM after the first boot
+4. **Admin Authentication:** Token-based auth with session cookies (HttpOnly, SameSite), constant-time comparison, login rate-limited (10 attempts/15 min/IP)
+5. **No Database:** Data is never stored — exists only during printing
+6. **Rate Limited:** Built-in per-IP rate limiting (5 req/hr default) + separate admin login rate limiter. Deploy behind a reverse proxy for production-grade protection.
+7. **Forward Compatible:** QR format versioned (`ZD1:`) for future upgrades
 
 ---
 
@@ -202,9 +219,12 @@ docker-compose logs -f
 
 First boot will:
 1. Generate encryption key pair
-2. Print private key QR code to logs
-3. Display public key fingerprint
-4. Shred private key from server
+2. Save private key to disk (0600 permissions) for persistence across restarts
+3. Print private key QR code to logs
+4. Display public key fingerprint
+5. Shred private key from server memory (file stays on disk)
+
+**On subsequent restarts**, the existing key pair is reused. The private key never re-enters server memory — only the public key is loaded. This means old encrypted QR codes remain decryptable after a restart.
 
 ---
 

@@ -83,7 +83,12 @@ func main() {
 
 	// Initialize or load key pair
 	log.Println("\n=== Key Provisioning ===")
-	keyPair, err := crypto.InitializeOrLoadKeyPair(cfg.PublicKeyPath, cfg.LogEnabled)
+	keyPair, err := crypto.InitializeOrLoadKeyPair(
+		cfg.PublicKeyPath,
+		cfg.PrivateKeyPath,
+		cfg.KeyRotate,
+		cfg.LogEnabled,
+	)
 	if err != nil {
 		log.Fatalf("Failed to initialize key pair: %v", err)
 	}
@@ -96,21 +101,29 @@ func main() {
 	})
 
 	log.Println("\n=== Burn Protocol ===")
-	log.Println("Executing Burn Protocol to destroy private key from memory...")
-	crypto.BurnProtocol(keyPair)
-	logger.Info("Burn Protocol complete", map[string]interface{}{
-		"status": "private_key_destroyed",
-	})
-	log.Println("Burn Protocol complete. Private key has been destroyed from server memory.")
+	if keyPair.PrivateKey != nil {
+		log.Println("Executing Burn Protocol to destroy private key from memory...")
+		crypto.BurnProtocol(keyPair)
+		logger.Info("Burn Protocol complete", map[string]interface{}{
+			"status": "private_key_destroyed",
+		})
+		log.Println("Burn Protocol complete. Private key has been destroyed from server memory.")
+	} else {
+		log.Println("Skipped — private key not loaded (reusing existing key pair from disk).")
+	}
 
 	// Create printer based on configuration
 	var printImpl printer.Printer
 	var printInterface interface{} // For extended interfaces (HealthChecker, etc.)
+	var pm *printer.PrinterManager
 
 	switch cfg.PrinterType {
 	case "mock":
 		printImpl = printer.NewMockPrinter()
 		printInterface = printImpl
+		pm = printer.NewPrinterManager(printImpl, printer.PrinterInfo{
+			ID: "mock", Name: "Mock Printer (stdout)", Type: "mock",
+		})
 		logger.Info("Mock printer initialized", nil)
 
 	case "usb":
@@ -127,34 +140,52 @@ func main() {
 				log.Println("Falling back to Mock Printer...")
 				printImpl = printer.NewMockPrinter()
 				printInterface = printImpl
+				pm = printer.NewPrinterManager(printImpl, printer.PrinterInfo{
+					ID: "mock", Name: "Mock Printer (stdout)", Type: "mock",
+				})
 			} else {
 				printImpl = rawPrinter
 				printInterface = rawPrinter
+				devicePath := rawPrinter.GetDevicePath()
+				pm = printer.NewPrinterManager(printImpl, printer.PrinterInfo{
+					ID: devicePath, Name: "Raw USB Printer", Type: "usb", Device: devicePath,
+				})
 				log.Printf("Raw USB printer initialized at %s (ep %s)",
-					rawPrinter.GetDevicePath(), rawPrinter.HealthCheck()["endpoint"])
+					devicePath, rawPrinter.HealthCheck()["endpoint"])
 			}
 		} else {
 			printImpl = usbPrinter
 			printInterface = usbPrinter
-			log.Printf("USB printer initialized at %s", usbPrinter.GetDevicePath())
-
-			// Show detected printers info
-			printers := printer.DetectAvailablePrinters()
-			log.Printf("Detected %d thermal printer device(s)", len(printers))
-			for i, p := range printers {
-				log.Printf("  %d. %s - %s", i+1, p["path"], p["model"])
-			}
+			devicePath := usbPrinter.GetDevicePath()
+			pm = printer.NewPrinterManager(printImpl, printer.PrinterInfo{
+				ID: devicePath, Name: "USB Printer", Type: "usb", Device: devicePath,
+			})
+			log.Printf("USB printer initialized at %s", devicePath)
 		}
 
 	default:
 		log.Fatalf("Unknown printer type: %s", cfg.PrinterType)
 	}
 
-	// Create spooler with queue size of 10
-	splr := spooler.NewSpooler(10, printImpl)
+	// Detect all printers for admin panel
+	pm.Detect()
+
+	// Create spooler with queue size of 10, using PrinterManager so
+		// admin printer switching takes effect on the next print job
+		splr := spooler.NewSpooler(10, pm)
 
 	// Create API server with printer for health checks
 	server := api.NewServer(cfg, splr.Queue(), printInterface)
+
+	// Enable admin dashboard if token is configured
+	if cfg.AdminToken != "" {
+		fingerprint, _ := crypto.GetPublicKeyFingerprint(keyPair.PublicKey)
+		server.EnableAdmin(splr, pm, cfg.PublicKeyPath, cfg.PrivateKeyPath, fingerprint)
+		log.Println("Admin dashboard enabled at /admin")
+	} else {
+		server.FinalizeRoutes()
+		log.Println("Admin dashboard disabled (set ADMIN_TOKEN to enable)")
+	}
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

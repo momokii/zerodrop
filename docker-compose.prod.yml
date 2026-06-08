@@ -12,6 +12,8 @@ services:
       - RATE_LIMIT_BURST=${RATE_LIMIT_BURST:-1}
       - LOG_ENABLED=${LOG_ENABLED:-false}
       - TLS_ENABLED=${TLS_ENABLED:-false}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-}
+      - KEY_ROTATE=${KEY_ROTATE:-false}
     # USB printer access — handles both initial detection and re-enumeration:
     #   - device_cgroup_rules: grants kernel-level access to ALL USB devices (major 189)
     #     so re-enumerated devices (new devnum) are accessible without restart

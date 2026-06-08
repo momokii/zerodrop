@@ -3,7 +3,10 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 )
 
 // Config holds the application configuration
@@ -30,6 +33,25 @@ type Config struct {
 	// When enabled, Web Crypto API works from other devices on the network
 	// since crypto.subtle requires a secure context (HTTPS or localhost).
 	TLSEnabled bool
+
+	// AdminToken is the authentication token for the admin dashboard.
+	// If empty, admin endpoints are disabled.
+	AdminToken string
+
+	// AdminSessionTTL is the lifetime of admin dashboard sessions.
+	// Default: 24h.
+	AdminSessionTTL time.Duration
+
+	// KeyRotate forces generation of a new key pair on next startup.
+	KeyRotate bool
+
+	// PrivateKeyPath is where the private key PEM is stored.
+	PrivateKeyPath string
+
+	// KeyGrantTTL is how long a key access grant lasts before the admin
+	// must re-authenticate to view/download private key material.
+	// Default: 5m.
+	KeyGrantTTL time.Duration
 }
 
 // DefaultConfig returns a configuration with default values
@@ -41,6 +63,7 @@ func DefaultConfig() *Config {
 		RateLimitBurst:           1,
 		LogEnabled:               false,
 		PublicKeyPath:            "./data/public_key.pem",
+		AdminSessionTTL:          24 * time.Hour,
 	}
 }
 
@@ -130,6 +153,56 @@ func LoadFromEnv() (*Config, error) {
 			return nil, fmt.Errorf("TLS_ENABLED must be a boolean (true/false): %w", err)
 		}
 		config.TLSEnabled = enabled
+	}
+
+	// Optional: ADMIN_TOKEN
+	// Treat empty, "false", "0", "no", "disabled" (case-insensitive) as
+	// disabled — a real token must be a secure random string.
+	config.AdminToken = os.Getenv("ADMIN_TOKEN")
+	if s := strings.ToLower(config.AdminToken); s == "" || s == "false" || s == "0" || s == "no" || s == "disabled" {
+		config.AdminToken = ""
+	}
+
+	// Optional: ADMIN_SESSION_TTL
+	if val := os.Getenv("ADMIN_SESSION_TTL"); val != "" {
+		ttl, err := time.ParseDuration(val)
+		if err != nil {
+			return nil, fmt.Errorf("ADMIN_SESSION_TTL must be a valid duration (e.g. 24h, 30m): %w", err)
+		}
+		if ttl <= 0 {
+			return nil, fmt.Errorf("ADMIN_SESSION_TTL must be positive (got: %s)", val)
+		}
+		config.AdminSessionTTL = ttl
+	}
+
+	// Optional: KEY_ROTATE
+	if val := os.Getenv("KEY_ROTATE"); val != "" {
+		enabled, err := strconv.ParseBool(val)
+		if err != nil {
+			return nil, fmt.Errorf("KEY_ROTATE must be a boolean: %w", err)
+		}
+		config.KeyRotate = enabled
+	}
+
+	// Optional: PRIVATE_KEY_PATH (default: derived from PublicKeyPath)
+	if val := os.Getenv("PRIVATE_KEY_PATH"); val != "" {
+		config.PrivateKeyPath = val
+	} else {
+		config.PrivateKeyPath = filepath.Join(filepath.Dir(config.PublicKeyPath), "private_key.pem")
+	}
+
+	// Optional: KEY_GRANT_TTL — how long key access grant lasts (default: 5m)
+	if val := os.Getenv("KEY_GRANT_TTL"); val != "" {
+		ttl, err := time.ParseDuration(val)
+		if err != nil {
+			return nil, fmt.Errorf("KEY_GRANT_TTL must be a valid duration (e.g. 5m, 10m, 30s): %w", err)
+		}
+		if ttl <= 0 {
+			return nil, fmt.Errorf("KEY_GRANT_TTL must be positive (got: %s)", val)
+		}
+		config.KeyGrantTTL = ttl
+	} else {
+		config.KeyGrantTTL = 5 * time.Minute
 	}
 
 	return config, nil

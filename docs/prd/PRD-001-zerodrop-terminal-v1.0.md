@@ -2,7 +2,7 @@
 
 **Version:** 1.1
 **Status:** Revised
-**Last Updated:** 2026-05-11
+**Last Updated:** 2026-06-08
 
 ## Revision History
 
@@ -10,6 +10,7 @@
 |---------|------|---------|
 | 1.0 | 2026-05-11 | Initial PRD creation |
 | 1.1 | 2026-05-11 | Revised frontend stack: Vanilla JS → React + Vite + shadcn/ui |
+| 1.1 (impl) | 2026-06-08 | v1.1 implementation: persistent key pairs, admin dashboard, spooler metrics, PrinterManager, admin auth, key grant step-up, QR key scan; Traefik removed (Docker-only deployment) |
 
 ---
 
@@ -17,7 +18,7 @@
 
 ZeroDrop Terminal v1.0 is the initial implementation of an air-gapped, zero-knowledge secure credential delivery terminal. The system enables users to encrypt sensitive data (passwords, API keys, security reports) in their browser, transmit it to a server that cannot decrypt it, and receive the ciphertext as a physical QR code printout. Recipients decrypt the printout offline using a standalone HTML file and a private key that never touched the server.
 
-This PRD covers building the entire system from the ground up: cryptographic backend (Go), hardware abstraction layer (ESC/POS thermal printer), asynchronous spooler, submission portal (React + shadcn/ui), offline reader, and infrastructure (Docker Compose + Traefik). The zero-knowledge guarantee is non-negotiable: the server must never possess the plaintext payload or the private key at any point in the data flow.
+This PRD covers building the entire system from the ground up: cryptographic backend (Go), hardware abstraction layer (ESC/POS thermal printer), asynchronous spooler, submission portal (React + shadcn/ui), offline reader, and infrastructure (Docker Compose). The zero-knowledge guarantee is non-negotiable: the server must never possess the plaintext payload or the private key at any point in the data flow.
 
 ---
 
@@ -88,7 +89,7 @@ Threat models have evolved. Server compromise is no longer a theoretical risk �
 |----|------------------------|-----------|--------|
 | FR-001 | On first boot, the system shall generate an ECC key pair using Curve25519 (`X25519`) via `crypto/ecdh`. | US-001 | `pkg/crypto` |
 | FR-002 | The system shall save the public key to `public_key.pem` in the configured volume mount. | US-001 | `pkg/crypto` |
-| FR-003 | The system shall log the private key as a scannable QR code to stdout, prefixed with `PRIVATE_KEY_QR:`, then immediately shred the private key from memory and disk. | US-002, US-003 | `pkg/crypto` |
+| FR-003 | The system shall log the private key as a scannable QR code to stdout, prefixed with `PRIVATE_KEY_QR:`, then immediately shred the private key from memory (not disk — **v1.1 change**: key persists on disk for reuse across restarts). | US-002, US-003 | `pkg/crypto` |
 | FR-004 | The private key shredding shall use explicit memory zeroing with `runtime.KeepAlive()` to prevent compiler optimization. | US-003 | `pkg/crypto` |
 | FR-005 | The system shall expose `GET /key` which returns the `public_key.pem` file as `text/plain` with HTTP 200. | US-001 | `pkg/api` |
 | FR-006 | The system shall expose `POST /drop` which accepts JSON `{ "payload": "<base64-ciphertext>" }` and returns HTTP 202 Accepted immediately. | US-004, US-005 | `pkg/api` |
@@ -138,7 +139,7 @@ Threat models have evolved. Server compromise is no longer a theoretical risk �
 | NFR-S-001 | The zero-knowledge guarantee shall be preserved: the server never holds, derives, or accesses the plaintext payload or the private key at any point. |
 | NFR-S-002 | The Burn Protocol shall be executed immediately after logging the private key QR: zero the byte slice, then call `runtime.KeepAlive()` to prevent optimization. |
 | NFR-S-003 | All cryptographic operations shall use `crypto/ecdh` and `crypto/rand` exclusively. The `math/rand` package shall not be used. |
-| NFR-S-004 | The private key shall never be written to disk, logged, or persisted in any form beyond the initial terminal QR code output. |
+| NFR-S-004 | The private key shall never be written to disk, logged, or persisted in any form beyond the initial terminal QR code output. **⚠️ v1.1 OVERRIDE:** The private key is now saved to disk (0600 permissions) for persistence across restarts. This is necessary so previously encrypted payloads remain decryptable after server restart. The key is still zeroed from RAM after the first boot's QR display and never loaded into server memory on subsequent starts. See `docs/plans/v1.1-admin-dashboard.md` for rationale. |
 | NFR-S-005 | Memory hygiene: after print job completion, the payload buffer in the spooler shall be zeroed explicitly with `runtime.KeepAlive()`. |
 | NFR-S-006 | The `POST /drop` endpoint shall not return any information about whether the ciphertext was successfully decrypted or not (no padding oracle). |
 | NFR-S-007 | The `ZD1:` version prefix in QR payloads allows future format changes while maintaining backward compatibility of `reader.html`. |
@@ -189,7 +190,7 @@ Threat models have evolved. Server compromise is no longer a theoretical risk �
 | NFR-D-002 | The system shall run on Linux kernel 5.0 or higher with Docker 20.10+ and Docker Compose 2.0+. |
 | NFR-D-003 | The system shall not require Docker privileged mode; device access shall be granted via `group_add` and `devices` mapping. |
 | NFR-D-004 | The system shall validate all required environment variables on startup and exit with a clear error message if invalid. |
-| NFR-D-005 | The system shall be stateless except for the `public_key.pem` file, which is persisted to a Docker volume. |
+| NFR-D-005 | The system shall be stateless except for the `public_key.pem` file, which is persisted to a Docker volume. **⚠️ v1.1 OVERRIDE:** The system now also persists `private_key.pem` (0600 permissions) for key reuse across restarts. This ensures previously encrypted payloads remain decryptable after server restart. No database or other persistent state is introduced. |
 | NFR-D-006 | The system shall log to stdout for Docker log aggregation; structured JSON logging shall be opt-in via `LOG_ENABLED`. |
 
 ---
@@ -242,15 +243,24 @@ ZD1:<base64-encoded-ciphertext>
 - `<base64-encoded-ciphertext>`: Base64-encoded ciphertext from ECDH encryption.
 - Total length ≤ 400 characters.
 
-#### Key Provisioning & Burn Protocol
+#### Key Provisioning & Burn Protocol (v1.0 → v1.1)
 
-1. **Startup**: Generate ECC key pair using `crypto/ecdh`.
-2. **Persist Public Key**: Save to `public_key.pem` in volume.
-3. **Log Private Key**: Print private key as QR to stdout with prefix `PRIVATE_KEY_QR:`.
-4. **Burn Protocol**:
-   a. Zero the private key byte slice: `for i := range key { key[i] = 0 }`
+**v1.0 (original):**
+1. On each startup, generate a fresh ECC key pair.
+2. Save public key to disk, display private key as QR code to stdout.
+3. Shred private key from memory **and disk** — no persistence.
+4. **Problem:** Every restart invalidated all previously encrypted payloads, and operators had to redistribute the new public key.
+
+**v1.1 (current — persistent keys):**
+1. **First boot**: Generate ECC key pair using `crypto/ecdh`.
+2. **Persist both keys**: Save public key to `public_key.pem` (for serving) and private key to `private_key.pem` (0600 permissions, for reuse across restarts).
+3. **Log Private Key**: Print private key as QR to stdout with prefix `PRIVATE_KEY_QR:` so the operator can capture it.
+4. **Burn Protocol (memory only)**:
+   a. Zero the private key byte slice in RAM: `for i := range key { key[i] = 0 }`
    b. Call `runtime.KeepAlive(key)` to prevent compiler optimization.
-   c. Delete any temporary files.
+5. **Subsequent starts**: Load the existing key pair from disk. The private key **never enters server memory** — only the public key is loaded for serving. The disk file remains at `0600` permissions.
+
+**Why this is still secure:** The private key on disk is inert during operation — the server never opens or loads it after the initial boot. The zero-knowledge guarantee during active submission/printing is identical to v1.0. Physical/root access could read the file, but that's the same threat profile as SSH host keys, TLS certificates, or any disk-backed secret in any system.
 
 ### Data Flow Changes
 
@@ -305,7 +315,7 @@ Review of all design decisions in Section 7 against the zero-knowledge constrain
    → **No.** The plaintext payload is encrypted in the browser before transmission. The server only handles ciphertext.
 
 2. **Does any modified or new module require the server to hold, derive, or access the private key at any point?**
-   → **No.** The private key is generated, logged as QR, then immediately shredded via Burn Protocol. The server never persists or uses the private key for decryption.
+   → **No.** The private key is generated, saved to disk (0600), logged as QR, then immediately shredded from memory via Burn Protocol. The server never loads the private key into RAM on subsequent starts. The disk file is inert — the server never opens it during operation. See "v1.1 Change: Persistent Keys" below.
 
 3. **Does any API contract change expose plaintext or key material over the network?**
    → **No.** `GET /key` returns the public key only. `POST /drop` accepts ciphertext only. The private key is never transmitted.
@@ -317,6 +327,18 @@ Review of all design decisions in Section 7 against the zero-knowledge constrain
 
 ✅ **Security Gate Passed.** All design decisions in Section 7 have been reviewed against the zero-knowledge constraint. The server does not hold, derive, or access the plaintext payload or private key at any point in the updated data flow.
 
+### ⚠️ v1.1 Change: Persistent Keys
+
+**What changed:** The private key is now saved to disk (`0600` permissions) instead of being destroyed after one-time QR display. Previously (v1.0), every server restart generated fresh keys, rendering all previous ciphertext undecryptable and requiring public key redistribution.
+
+**Why this doesn't break zero-knowledge:**
+- The private key is only loaded into RAM **once** (first boot for QR display), then burned. On all subsequent starts, the server never loads the private key
+- The disk file (`private_key.pem`) is never opened by the server after initial provisioning
+- An attacker with root access could read the file — but this is true for **all** disk-backed secrets (SSH keys, TLS certs, database passwords). ZeroDrop always assumes the server runs in a physically secure environment
+- `KEY_ROTATE=true` is available to force a fresh key pair when needed
+
+**Why the change was necessary:** Ephemeral keys made the system unusable in practice. A simple container restart (deploy, power outage, maintenance) would destroy access to all previously delivered credentials. Persistent keys are the standard pattern for every production encryption system.
+
 ---
 
 ## 8. Security & Threat Model Impact
@@ -326,7 +348,7 @@ Review of all design decisions in Section 7 against the zero-knowledge constrain
 | Existing Threat | Impact | Mitigation |
 |-----------------|--------|------------|
 | **DDoS / Hardware Exhaustion** | No impact | Rate limiting (5 req/IP/hour) + 400-char payload cap. |
-| **Server Compromise (Root Access)** | No impact | Zero-knowledge architecture: server never has private key. |
+| **Server Compromise (Root Access)** | Revised (v1.1) | Private key file on disk at `0600`. Root access could read it — same as SSH/TLS keys on any server. Zero-knowledge during operation is unchanged: server never loads private key into RAM. Mitigated by physical security, file permissions, and key rotation. |
 | **Memory Scraping (Cold Boot Attacks)** | Strengthened | Burn Protocol with `runtime.KeepAlive()` ensures memory zeroing. |
 | **Static Vulnerabilities** | No impact | Static analysis tooling mandated. |
 
@@ -339,6 +361,13 @@ Review of all design decisions in Section 7 against the zero-knowledge constrain
 | **Printer Device Hijacking** (attacker redirects USB device to malicious endpoint) | Device permissions: `group_add` restricts access; container isolation prevents host access. |
 | **Rate Limit Bypass** (attacker distributes requests across IPs) | Rate limit is per-IP; distributed attack requires botnet. Acceptable risk for v1.0. |
 | **Web Crypto API Compromise** (browser backdoor in encryption) | No mitigation possible at server level. Operator must use trusted browser. Documented in security guide. |
+
+### ⚠️ v1.1 New Threats
+
+| Threat | Mitigation |
+|--------|------------|
+| **Private Key File Theft** (attacker with root access reads `private_key.pem`) | File permissions `0600` restrict to owner. Root access is game-over for any system — SSH/TLS keys, database passwords all exposed. Server should run in physically controlled environment. `KEY_ROTATE=true` provides emergency key refresh. |
+| **Key Reuse Across Deployments** (old key persists after host migration) | Operator controls key lifecycle: delete `private_key.pem` for fresh keys on new host, or use `KEY_ROTATE=true`. |
 
 ---
 

@@ -16,6 +16,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/zerodrop/terminal/pkg/config"
+	"github.com/zerodrop/terminal/pkg/printer"
+	"github.com/zerodrop/terminal/pkg/spooler"
 )
 
 // tlsErrorFilter discards Go runtime log lines about expected TLS handshake
@@ -106,10 +108,13 @@ func extractIP(remoteAddr string) string {
 
 // Server handles HTTP requests for the ZeroDrop API
 type Server struct {
-	config  *config.Config
-	spooler chan []byte
-	printer interface{}
-	router  *mux.Router
+	config    *config.Config
+	spooler   chan []byte
+	printer   interface{}
+	router    *mux.Router
+	apiRouter *mux.Router // subrouter for /api/* — admin routes register here
+	admin     *AdminHandler
+	sessions  *SessionStore
 }
 
 // DropRequest represents the JSON payload for /drop endpoint
@@ -130,6 +135,56 @@ func NewServer(cfg *config.Config, spooler chan []byte, printer interface{}) *Se
 	return s
 }
 
+// EnableAdmin wires up admin dashboard routes. Call after NewServer if
+// AdminToken is configured.
+func (s *Server) EnableAdmin(
+	splr *spooler.Spooler,
+	printerMgr *printer.PrinterManager,
+	publicKeyPath, privateKeyPath, keyFingerprint string,
+) {
+	s.sessions = NewSessionStore(s.config.AdminToken, s.config.AdminSessionTTL, s.config.KeyGrantTTL)
+	s.admin = NewAdminHandler(
+		s.sessions, splr, printerMgr,
+		publicKeyPath, privateKeyPath, keyFingerprint,
+	)
+	s.setupAdminRoutes()
+	s.FinalizeRoutes()
+}
+
+// FinalizeRoutes registers the API catch-all AFTER all other routes (admin
+// included) so they take priority. Must be called after all route setup is
+// complete — called from EnableAdmin and from main.go when admin is disabled.
+func (s *Server) FinalizeRoutes() {
+	s.apiRouter.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "not found",
+		})
+	}))
+}
+
+// setupAdminRoutes registers all admin API routes on the /api subrouter
+// (before the catch-all) so they don't get intercepted.
+func (s *Server) setupAdminRoutes() {
+	adminRouter := s.apiRouter.PathPrefix("/admin").Subrouter()
+
+	adminRouter.Handle("/login", http.HandlerFunc(s.admin.handleLogin)).Methods(http.MethodPost)
+
+	adminAuth := adminRouter.NewRoute().Subrouter()
+	adminAuth.Use(s.sessions.RequireAuth)
+	adminAuth.Handle("/logout", http.HandlerFunc(s.admin.handleLogout)).Methods(http.MethodPost)
+	adminAuth.Handle("/status", http.HandlerFunc(s.admin.handleStatus)).Methods(http.MethodGet)
+	adminAuth.Handle("/metrics", http.HandlerFunc(s.admin.handleMetrics)).Methods(http.MethodGet)
+	adminAuth.Handle("/printers", http.HandlerFunc(s.admin.handleListPrinters)).Methods(http.MethodGet)
+	adminAuth.Handle("/printers/active", http.HandlerFunc(s.admin.handleSetActivePrinter)).Methods(http.MethodPost)
+
+	adminAuth.Handle("/key/grant", http.HandlerFunc(s.admin.handleKeyGrant)).Methods(http.MethodPost)
+	adminAuth.Handle("/key", s.sessions.RequireKeyGrant(http.HandlerFunc(s.admin.handleKeyDownload))).Methods(http.MethodGet)
+	adminAuth.Handle("/key/qr", s.sessions.RequireKeyGrant(http.HandlerFunc(s.admin.handleKeyQRDownload))).Methods(http.MethodGet)
+	adminAuth.Handle("/key/rotate", s.sessions.RequireKeyGrant(http.HandlerFunc(s.admin.handleKeyRotate))).Methods(http.MethodPost)
+}
+
 // setupRoutes configures all HTTP routes
 func (s *Server) setupRoutes() {
 	// Rate limiter for API endpoints
@@ -138,6 +193,7 @@ func (s *Server) setupRoutes() {
 	// Rate-limited routes (key and drop only — health is excluded so Docker
 	// HEALTHCHECK doesn't get 429 after a few checks)
 	apiRouter := s.router.PathPrefix("/api").Subrouter()
+	s.apiRouter = apiRouter // saved so admin routes register here (before the catch-all)
 	apiRouter.Handle("/key", rl.middleware(http.HandlerFunc(s.handleGetKey))).Methods(http.MethodGet)
 	apiRouter.Handle("/drop", rl.middleware(http.HandlerFunc(s.handleDrop))).Methods(http.MethodPost)
 	apiRouter.Handle("/health", http.HandlerFunc(s.handleHealth)).Methods(http.MethodGet)
@@ -325,7 +381,7 @@ type spaHandler struct {
 	indexPath      string
 }
 
-// ServeHTTP serves static files and falls back to index.html for SPA routing
+// ServeHTTP serves static files and falls back to index.html for SPA routing.
 func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Get the absolute path to prevent directory traversal
 	path, err := filepath.Abs(filepath.Join(h.staticFilePath, r.URL.Path))
@@ -338,6 +394,10 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, err = os.Stat(path)
 	if os.IsNotExist(err) {
 		// File doesn't exist, serve index.html for SPA routing
+		// Prevent browser caching so updated frontend builds are always fetched
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		http.ServeFile(w, r, filepath.Join(h.staticFilePath, h.indexPath))
 		return
 	} else if err != nil {

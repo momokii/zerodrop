@@ -5,28 +5,45 @@ import (
 	"log"
 	"runtime"
 	"time"
+
+	"github.com/zerodrop/terminal/pkg/printer"
 )
 
 // Spooler manages the print job queue and processes jobs sequentially
 type Spooler struct {
 	queue      chan []byte
 	workerDone chan struct{}
-	printer    Printer
+	getPrinter func() printer.Printer
+	metrics    *Metrics
 }
 
-// Printer interface defines the contract for printing payloads
-type Printer interface {
-	Print(ciphertext []byte) error
-	IsAvailable() bool
+// PrinterProvider returns the current active printer. Used by the spooler
+// to resolve the printer at job time so admin printer switching takes effect.
+type PrinterProvider interface {
+	GetActive() printer.Printer
 }
 
-// NewSpooler creates a new spooler with the given queue size and printer
-func NewSpooler(queueSize int, printer Printer) *Spooler {
-	return &Spooler{
+// NewSpooler creates a new spooler with the given queue size and printer provider.
+// Accepts either a PrinterProvider (e.g., PrinterManager) or a static Printer.
+func NewSpooler(queueSize int, provider interface{}) *Spooler {
+	s := &Spooler{
 		queue:      make(chan []byte, queueSize),
 		workerDone: make(chan struct{}),
-		printer:    printer,
+		metrics:    NewMetrics(),
 	}
+	if pp, ok := provider.(PrinterProvider); ok {
+		s.getPrinter = pp.GetActive
+	} else if p, ok := provider.(printer.Printer); ok {
+		s.getPrinter = func() printer.Printer { return p }
+	} else {
+		panic("NewSpooler: provider must implement printer.Printer or PrinterProvider")
+	}
+	return s
+}
+
+// GetMetrics returns a snapshot of the current spooler metrics.
+func (s *Spooler) GetMetrics() Metrics {
+	return s.metrics.Snapshot()
 }
 
 // Start begins processing print jobs from the queue
@@ -45,6 +62,7 @@ func (s *Spooler) Start(ctx context.Context) {
 					log.Println("Spooler worker shutting down...")
 					return
 				}
+				s.metrics.updateDepth(len(s.queue))
 				s.processJob(payload)
 			}
 		}
@@ -55,14 +73,18 @@ func (s *Spooler) Start(ctx context.Context) {
 func (s *Spooler) processJob(payload []byte) {
 	log.Printf("Processing print job (payload size: %d bytes)", len(payload))
 
+	start := time.Now()
+	printer := s.getPrinter()
+
 	// Retry logic: up to 3 attempts with exponential backoff
 	maxRetries := 3
 	backoff := time.Second
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := s.printer.Print(payload)
+		err := printer.Print(payload)
 		if err == nil {
 			log.Printf("Print job completed successfully")
+			s.metrics.recordSuccess(time.Since(start))
 			// Memory zeroing: clear the payload buffer
 			s.zeroPayload(payload)
 			return
@@ -73,9 +95,11 @@ func (s *Spooler) processJob(payload []byte) {
 		if attempt < maxRetries {
 			log.Printf("Retrying in %v...", backoff)
 
+			// Re-resolve printer in case admin switched it between retries
+			printer = s.getPrinter()
+
 			// If the printer supports reconnection, attempt it before retry.
-			// This handles USB printer re-enumeration between retries.
-			if reconnector, ok := s.printer.(interface{ Reconnect() error }); ok {
+			if reconnector, ok := printer.(interface{ Reconnect() error }); ok {
 				if recErr := reconnector.Reconnect(); recErr != nil {
 					log.Printf("Reconnect before retry failed: %v", recErr)
 				}
@@ -84,6 +108,7 @@ func (s *Spooler) processJob(payload []byte) {
 			time.Sleep(backoff)
 			backoff *= 2 // Exponential backoff
 		} else {
+			s.metrics.recordFailure()
 			log.Printf("Print job failed after %d attempts", maxRetries)
 		}
 	}

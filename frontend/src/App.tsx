@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import QRCode from "qrcode";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { checkHealth, fetchPublicKey, submitPayload, validatePayload } from "@/lib/api";
+import { checkHealth, fetchPublicKey, submitPayload, validatePayload, MAX_PRINT_PAYLOAD, estimatePayloadSize } from "@/lib/api";
 import { encryptData, calculateFingerprintFromPEM, parsePEM } from "@/lib/crypto";
 import { copyToClipboard } from "@/lib/utils";
 
@@ -28,6 +28,13 @@ function App() {
   const [isHealthy, setIsHealthy] = useState(false);
   const [printerInfo, setPrinterInfo] = useState<string>("");
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  const estimatedPayloadChars = useMemo(() => {
+    if (!plaintext.trim()) return 0;
+    return estimatePayloadSize(plaintext);
+  }, [plaintext]);
+
+  const canPrint = encryptedData.length > 0 && encryptedData.length <= MAX_PRINT_PAYLOAD;
 
   // Fetch server public key and health on mount
   useEffect(() => {
@@ -134,10 +141,13 @@ function App() {
       setEncryptedData(result.qrData);
       setStep("submit");
 
+      const fitsPrint = result.qrData.length <= MAX_PRINT_PAYLOAD;
       setStatus({
         type: "success",
         title: "Encryption Complete",
-        message: `Your message has been encrypted. Review the encrypted data below, then submit to print.`,
+        message: fitsPrint
+          ? "Your message has been encrypted. Review the encrypted data below, then submit to print."
+          : `Your message has been encrypted (${result.qrData.length} chars). It exceeds the ${MAX_PRINT_PAYLOAD}-char print limit — copy the ciphertext for manual delivery.`,
       });
     } catch (error) {
       setStatus({
@@ -309,8 +319,10 @@ function App() {
             <CardDescription>
               {step === "encrypt" &&
                 "Enter your sensitive message below. It will be encrypted in your browser using the server's public key."}
-              {step === "submit" &&
+              {step === "submit" && canPrint &&
                 "Review the encrypted data below. Once submitted, it will be printed as a QR code."}
+              {step === "submit" && !canPrint &&
+                "Encrypted successfully, but the payload exceeds the QR print limit. Copy the ciphertext for manual delivery."}
               {step === "success" &&
                 "Your encrypted message has been added to the print queue."}
             </CardDescription>
@@ -328,9 +340,22 @@ function App() {
                     rows={6}
                     className="resize-none"
                   />
-                  <p className="text-xs text-muted-foreground">
-                    {plaintext.length} characters
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {plaintext.length} chars · est. payload ~{estimatedPayloadChars} chars
+                    </span>
+                    {plaintext.trim() && (
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                        estimatedPayloadChars <= MAX_PRINT_PAYLOAD
+                          ? "text-green-700 bg-green-100"
+                          : "text-amber-700 bg-amber-100"
+                      }`}>
+                        {estimatedPayloadChars <= MAX_PRINT_PAYLOAD
+                          ? "Print-ready"
+                          : "Exceeds print limit"}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
@@ -347,6 +372,18 @@ function App() {
                   </div>
                 </div>
 
+                {plaintext.trim() && estimatedPayloadChars > MAX_PRINT_PAYLOAD && (
+                  <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm">
+                    <p className="font-medium text-amber-900 dark:text-amber-100">Exceeds print limit</p>
+                    <p className="text-amber-700 dark:text-amber-300 mt-1">
+                      This message will be encrypted, but the resulting payload (~{estimatedPayloadChars} chars) exceeds the {MAX_PRINT_PAYLOAD}-character QR print limit and <strong>cannot be printed</strong>.
+                    </p>
+                    <p className="text-amber-700 dark:text-amber-300 mt-1">
+                      You can still copy the ciphertext and deliver it via USB, email, or side-channel for offline decryption in reader.html.
+                    </p>
+                  </div>
+                )}
+
                 <Button onClick={handleEncrypt} className="w-full" size="lg">
                   <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
@@ -356,7 +393,7 @@ function App() {
               </>
             )}
 
-            {step === "submit" && (
+            {step === "submit" && canPrint && (
               <>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -420,6 +457,63 @@ function App() {
                         Submit to Print
                       </>
                     )}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {step === "submit" && !canPrint && (
+              <>
+                <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm">
+                  <p className="font-medium text-amber-900 dark:text-amber-100">Encrypted — cannot be printed</p>
+                  <p className="text-amber-700 dark:text-amber-300 mt-1">
+                    The encrypted payload ({encryptedData.length} chars) exceeds the {MAX_PRINT_PAYLOAD}-character QR print limit. Thermal paper resolution can't reliably scan QR codes this dense.
+                  </p>
+                  <p className="text-amber-700 dark:text-amber-300 mt-1">
+                    Copy the ciphertext below and deliver it via USB, email, or side-channel. The recipient can decrypt it offline using reader.html.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Encrypted Data</Label>
+                    <Button variant="ghost" size="sm" onClick={handleCopyPayload}>
+                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Copy
+                    </Button>
+                  </div>
+                  <div className="bg-muted rounded-lg p-4">
+                    <code className="text-xs break-all block">
+                      {encryptedData}
+                    </code>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {encryptedData.length} characters — exceeds {MAX_PRINT_PAYLOAD}-char print limit by {encryptedData.length - MAX_PRINT_PAYLOAD} chars
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <Button
+                    onClick={() => setStep("encrypt")}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      await handleCopyPayload();
+                      handleReset();
+                    }}
+                    variant="secondary"
+                    className="flex-1"
+                  >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Copy &amp; New
                   </Button>
                 </div>
               </>

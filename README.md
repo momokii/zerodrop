@@ -851,12 +851,47 @@ This runs **50 automated checks** that independently prove the security claims a
 
 **If a check fails**, the command exits with error code 1 and tells you exactly which layer failed and where to look. In CI, this means a build would fail — no silent passes.
 
-**Run individually** to drill into a specific area:
+#### How to read the results
+
+When you run `make check-security`, you'll see two sections:
+
+**Section 1: Go Security Tests** — Each test runs and prints one `[SECURITY]` line:
+
+```
+--- PASS: TestSecurity_Crypto_ECDH_GoBrowserCompatible (0.00s)
+    [SECURITY] Full encryption roundtrip works: browser encrypts -> ZD1 payload -> server decrypts: PASS
+--- PASS: TestSecurity_KeyReuse_SameFingerprint_NilPrivateKey (0.01s)
+    [SECURITY] Server restart: same key pair (fingerprint matches), private key stays on disk (nil in RAM): PASS
+```
+
+Every line ending in `: PASS` means that specific security property was verified. If any test fails, you'll see `--- FAIL:` with a specific explanation of what went wrong.
+
+**Section 2: Code Scanning** — Static analysis checks that grep the source code:
+
+```
+[PASS] Zero-Knowledge    No Decrypt/Unseal functions in server code
+[PASS] Cryptography       All rand.Read/Reader calls use crypto/rand
+[PASS] Container          Dockerfile runs as non-root user (zerodrop)
+```
+
+**Final report** — Summary at the bottom:
+
+```
+  TOTAL                        50          0
+
+  ALL 50 SECURITY CLAIMS VERIFIED
+```
+
+If everything shows `50 / 0` and `ALL VERIFIED`, the setup is secure. If you see any failures, the output tells you exactly which check failed and why.
+
+#### Run individually
+
+To drill into a specific area:
 
 ```bash
-go test -v -run "TestSecurity_" -count=1 ./...   # Go security tests
-bash scripts/security-scan.sh                      # Static code analysis
-make check-security                                # Everything + report
+go test -v -run "TestSecurity_" -count=1 ./...   # Go security tests only
+bash scripts/security-scan.sh                      # Static code analysis only
+make check-security                                # Everything + summary report
 ```
 
 ### Test Coverage Areas

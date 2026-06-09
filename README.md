@@ -820,38 +820,43 @@ make ci
 
 ### Security Verification
 
-Run the full security verification suite to independently verify all security claims:
+**Don't trust us — verify it yourself.**
+
+ZeroDrop claims to be zero-knowledge, air-gapped, and secure. Instead of taking our word for it, run the security verification suite and see the proof:
 
 ```bash
 make check-security
 ```
 
-This runs **50 automated checks** (40 Go security tests + 10 static analysis checks) that verify:
+This runs **50 automated checks** that independently prove the security claims are true. Every test passes only if the actual security property holds — not just that the code compiles. For example:
 
-| Category | Checks | What It Verifies |
-|----------|--------|-----------------|
-| Zero-Knowledge | 2 | No decrypt/unseal functions in server code, no database imports |
-| Input Validation | 7 | POST /drop rejects oversized, invalid base64, accepts valid payloads |
-| Rate Limiting | 4 | Global per-IP limits, health endpoint exempt, per-IP isolation |
-| Admin Auth | 7 | HttpOnly cookies, SameSite=Lax, session expiry, step-up auth, 3 token sources |
-| Admin Login Rate Limit | 2 | Login endpoint rate-limited per IP |
-| Log Security | 4 | No private key material, payload content, session tokens, or admin tokens in logs |
-| HTTP Security | 4 | Admin routes behind auth, health endpoint public, SPA fallback safe, path traversal blocked |
-| Cryptography | 7 | X25519 key size, SHA-256 fingerprints, ECDH shared secret match, full ECIES roundtrip, key file permissions |
-| File & Config | 5 | File permissions (0644/0600), secure defaults, key reuse across restarts |
-| Static Analysis | 10 | No forbidden imports, .gitignore rules, no hardcoded secrets, Docker security |
+- The "server can never decrypt" claim is verified by scanning all server code for decrypt functions (there are none)
+- The "private key never loaded after first boot" claim is verified by actually simulating a restart and checking the key is `nil`
+- The "full encryption chain works" claim is verified by doing a real X25519 key exchange + AES-256-GCM encrypt/decrypt roundtrip
+- The "no secrets in logs" claim is verified by capturing real log output and scanning for tokens, payloads, and keys
 
-Run individually:
+**What gets checked:**
+
+| Category | Checks | What It Proves |
+|----------|--------|----------------|
+| Zero-Knowledge | 2 | Server literally cannot decrypt — no decrypt functions exist in code, no database to store data |
+| Input Validation | 7 | 401-char payload rejected, invalid base64 rejected, spooler receives decoded bytes (not raw string) |
+| Rate Limiting | 6 | Per-IP limits enforced, health endpoint exempt, each IP tracked independently |
+| Admin Auth | 7 | Cookies are HttpOnly + SameSite, expired sessions rejected, key download requires re-auth, 3 token sources work |
+| Log Security | 4 | Error logs don't contain payloads, tokens, or secrets — even when requests fail |
+| HTTP Security | 4 | Admin routes require auth, /.env not served, path traversal blocked |
+| Cryptography | 7 | X25519 keys are 32 bytes, fingerprints match across restarts, full ECIES roundtrip succeeds, file permissions correct |
+| File & Config | 5 | Logging off by default, rate limit >= 1, key reused across restarts with private key staying `nil` |
+| Static Analysis | 10 | Only crypto/rand (not math/rand), secrets in .gitignore, Docker runs as non-root with resource limits |
+
+**If a check fails**, the command exits with error code 1 and tells you exactly which layer failed and where to look. In CI, this means a build would fail — no silent passes.
+
+**Run individually** to drill into a specific area:
 
 ```bash
-# Go security tests only
-go test -v -run "TestSecurity_" -count=1 ./...
-
-# Static code analysis only
-bash scripts/security-scan.sh
-
-# Full suite with report
-make check-security
+go test -v -run "TestSecurity_" -count=1 ./...   # Go security tests
+bash scripts/security-scan.sh                      # Static code analysis
+make check-security                                # Everything + report
 ```
 
 ### Test Coverage Areas

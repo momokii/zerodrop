@@ -94,7 +94,7 @@ If any answer is "no", fix it before ending the session.
 | **Offline Reader** | `static/reader.html` + jsQR + Web Crypto | ✅ Implemented (standalone Docker: `Dockerfile.reader`) |
 | **Infrastructure** | Docker Compose | ✅ Implemented |
 | **Hardware** | 58mm thermal printer (ESC/POS), USB connectivity | ✅ Supported |
-| **Testing** | Go testing framework + Mock Printer for CI | ✅ 80 tests passing |
+| **Testing** | Go testing framework + Mock Printer for CI | ✅ 120 tests passing |
 
 ### Architecture
 
@@ -141,6 +141,7 @@ If any answer is "no", fix it before ending the session.
 - **Burn Protocol**: Must use `runtime.KeepAlive()` after zeroing private key from memory to prevent compiler optimization
 - **Persistent keys (v1.1)**: Private key saved to disk (0600) on first run, only loaded to RAM for first-run QR display, then burned. On subsequent starts the private key never enters server memory — only the public key is loaded. This is intentional: in v1.0, ephemeral keys meant every restart invalidated all previous ciphertext. Persistent keys ensure previously encrypted payloads remain decryptable after reboot. See `.claude/state/DECISIONS_LOG.md` (D-001) for full rationale. `KEY_ROTATE=true` forces regeneration.
 - **Admin auth (v1.1)**: `ADMIN_TOKEN` env var, constant-time comparison, session cookies (HttpOnly, SameSite, 24h expiry), login rate-limited (10 attempts/15min/IP)
+- **Security verification**: 50 automated checks via `make check-security` — 40 Go security tests + 10 static analysis checks
 - **QR version header**: All payloads prefixed with `ZD1:` for forward compatibility
 - **Key fingerprinting**: SHA-256 hash of public key logged on startup for operator verification
 - **Memory hygiene**: All payload buffers zeroed after print job completion
@@ -152,6 +153,9 @@ If any answer is "no", fix it before ending the session.
 ```bash
 # Run tests (with race detection and coverage)
 go test ./... -v -race -cover
+
+# Security verification (50 automated checks)
+make check-security
 
 # Build binary
 go build -o bin/zerodrop ./cmd/zerodrop
@@ -232,3 +236,4 @@ curl -s http://localhost:8080/health
 | 23 | 2026-06-04 | Docker .env fix, QR interleaving fix (log.SetOutput stdout), PNG QR files, dual PEM+JWK QR, compact QR renderer (half-block), v1.1 admin dashboard plan written to docs/plans/, all .claude/ state files updated for v1.1 |
 | 24 | 2026-06-06 | v1.1 implementation complete on `feature/v1.1-admin-dashboard`: persistent key storage, spooler metrics (thread-safe), PrinterManager with PrinterProvider interface, admin auth (token + session cookies + login rate limiting), admin API (8 endpoints), admin dashboard (/admin React page), private key QR scan in reader.html. 80 tests passing. All .claude/ docs updated for v1.1. |
 | 25 | 2026-06-08 | Doc audit: fixed test counts (43→80), updated project structure, README, OVERVIEW, ENVIRONMENT_GUIDE, SECURITY_STANDARDS, PRD; added missing env vars and v1.1 feature descriptions. All docs now reflect v1.1 state. |
+| 26 | 2026-06-09 | Security verification suite: 50 automated checks (40 Go security tests + 10 static analysis). New test files across pkg/api/ and pkg/crypto/. Scripts: security-scan.sh, security-report.sh. Makefile check-security target. 120 total tests passing. Zero-regression verified with race detection. |

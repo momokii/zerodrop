@@ -60,7 +60,8 @@
 - QR version header (`ZD1:`) enables forward compatibility
 - Key fingerprinting (SHA-256) provides operator verification against key substitution
 - Frontend uses Web Crypto API (browser-native) — no external crypto libraries
-- All 80 tests passing with race detection enabled (up from 26 in v1.0)
+- All 120 tests passing with race detection enabled (80 functional + 40 security)
+- **Security verification suite**: 50 automated checks (40 Go tests + 10 static analysis) — run `make check-security`
 - `govulncheck` shows no known vulnerabilities
 - Frontend dependencies have only dev-time vulnerabilities (esbuild/vite not in production)
 - Admin auth uses constant-time token comparison with session cookies (default 24h expiry, configurable via `ADMIN_SESSION_TTL`)
@@ -92,6 +93,7 @@
 | 23 | 2026-06-04 | Docker .env fix, QR interleaving fix, PNG QR files, dual PEM+JWK QR, v1.1 plan written |
 | 24 | 2026-06-06 | v1.1 implementation complete on feature/v1.1-admin-dashboard. 80 tests passing. |
 | 25 | 2026-06-08 | Doc audit: fixed test counts (43→80), updated project structure, README, OVERVIEW, ENVIRONMENT_GUIDE, SECURITY_STANDARDS, PRD; added missing env vars and v1.1 feature descriptions. All docs now reflect v1.1 state. |
+| 26 | 2026-06-09 | Security verification suite: 50 automated checks (40 Go security tests + 10 static analysis). New files: pkg/api/security_{input,ratelimit,admin,log,http}_test.go, pkg/crypto/security_{crypto,file}_test.go, scripts/security-scan.sh, scripts/security-report.sh. Makefile check-security target. 120 total tests passing (80 functional + 40 security). Zero-regression verified. |
 | 3 | 2026-05-11 | PRD revision v1.1: Frontend stack changed to React + Vite + shadcn/ui |
 | 4 | 2026-05-11 | M-01 implementation: Go module, pkg/crypto, pkg/config |
 | 5 | 2026-05-11 | M-02 implementation: pkg/api, pkg/spooler, pkg/observability |
@@ -112,7 +114,7 @@
 ## Codebase Statistics
 
 - **Total packages**: 8 Go packages (added `pkg/qr/`) + 1 React frontend
-- **Total tests**: 80 passing (Go backend) — up from 26 in v1.0
+- **Total tests**: 120 passing (80 functional + 40 security) — up from 26 in v1.0
 - **Go dependencies**: 2 (gorilla/mux, skip2/go-qrcode)
 - **Frontend dependencies**: 343 packages (344 with audit) + 257KB jsQR offline library
 - **Vulnerabilities**: 0 Go, 2 moderate (frontend dev-time only)

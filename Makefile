@@ -38,6 +38,7 @@ help:
 	@echo "  make test-race           - Run tests with race detection"
 	@echo "  make test-coverage       - Run tests with coverage report"
 	@echo "  make test-integration    - Run integration tests"
+	@echo "  make check-security      - Run full security verification suite (Go + code scan)"
 	@echo ""
 	@echo "QUALITY:"
 	@echo "  make check               - Run all checks (deps + tests)"
@@ -220,7 +221,7 @@ build-all: clean
 # Testing Targets
 # =============================================================================
 
-.PHONY: test test-race test-coverage test-integration
+.PHONY: test test-race test-coverage test-integration check-security
 
 test:
 	@echo "→ Running tests..."
@@ -244,6 +245,17 @@ test-integration:
 	@curl -s http://localhost:8080/key | grep -q "PUBLIC KEY" || (echo "✗ Key endpoint failed" && exit 1)
 	@pkill -f $(BINARY_NAME) 2>/dev/null || true
 	@echo "✓ Integration tests passed"
+
+check-security:
+	@echo "=== ZeroDrop Security Verification ==="
+	@echo ""
+	@echo "--- Go Security Tests ---"
+	@$(GO_CMD) test -v -run "TestSecurity_" -count=1 ./... 2>&1 | tee /tmp/zerodrop-security-go.log || true
+	@echo ""
+	@echo "--- Code Scanning Checks ---"
+	@bash scripts/security-scan.sh 2>&1 | tee /tmp/zerodrop-security-scan.log || true
+	@echo ""
+	@bash scripts/security-report.sh /tmp/zerodrop-security-go.log /tmp/zerodrop-security-scan.log
 
 # =============================================================================
 # Quality Targets

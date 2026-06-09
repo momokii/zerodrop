@@ -115,7 +115,7 @@
 
 ### Test Coverage
 
-- **Total tests**: 80 passed (up from 26 in v1.0)
+- **Total tests**: 120 passed (80 functional + 40 security)
 - **Packages tested**: 7 (`pkg/api`, `pkg/config`, `pkg/crypto`, `pkg/observability`, `pkg/printer`, `pkg/spooler`, `cmd/zerodrop`)
 - **Coverage**: Good for security-critical packages
 - **Race detection**: Clean (`go test -race ./...`)
@@ -303,7 +303,7 @@ Created `Makefile.deploy` with comprehensive production operations:
 
 - **Branch**: `feature/v1.1-admin-dashboard` — all work complete
 - **Main branch**: Stable v1.0 — awaiting merge
-- **Test count**: 80 tests passing (was 26 in v1.0)
+- **Test count**: 120 tests passing (80 functional + 40 security)
 - **New files**: `pkg/spooler/metrics.go`, `pkg/printer/manager.go`, `pkg/printer/manager_test.go`, `pkg/api/middleware.go`, `pkg/api/middleware_test.go`, `pkg/api/admin.go`, `pkg/api/admin_test.go`, `frontend/src/pages/Admin.tsx`, `frontend/src/lib/admin-api.ts`
 - **New env vars**: `ADMIN_TOKEN`, `KEY_ROTATE`, `PRIVATE_KEY_PATH`
 - **New packages**: 0 (all within existing packages)

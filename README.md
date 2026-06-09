@@ -818,18 +818,55 @@ make test-integration
 make ci
 ```
 
+### Security Verification
+
+Run the full security verification suite to independently verify all security claims:
+
+```bash
+make check-security
+```
+
+This runs **50 automated checks** (40 Go security tests + 10 static analysis checks) that verify:
+
+| Category | Checks | What It Verifies |
+|----------|--------|-----------------|
+| Zero-Knowledge | 2 | No decrypt/unseal functions in server code, no database imports |
+| Input Validation | 7 | POST /drop rejects oversized, invalid base64, accepts valid payloads |
+| Rate Limiting | 4 | Global per-IP limits, health endpoint exempt, per-IP isolation |
+| Admin Auth | 7 | HttpOnly cookies, SameSite=Lax, session expiry, step-up auth, 3 token sources |
+| Admin Login Rate Limit | 2 | Login endpoint rate-limited per IP |
+| Log Security | 4 | No private key material, payload content, session tokens, or admin tokens in logs |
+| HTTP Security | 4 | Admin routes behind auth, health endpoint public, SPA fallback safe, path traversal blocked |
+| Cryptography | 7 | X25519 key size, SHA-256 fingerprints, ECDH shared secret match, full ECIES roundtrip, key file permissions |
+| File & Config | 5 | File permissions (0644/0600), secure defaults, key reuse across restarts |
+| Static Analysis | 10 | No forbidden imports, .gitignore rules, no hardcoded secrets, Docker security |
+
+Run individually:
+
+```bash
+# Go security tests only
+go test -v -run "TestSecurity_" -count=1 ./...
+
+# Static code analysis only
+bash scripts/security-scan.sh
+
+# Full suite with report
+make check-security
+```
+
 ### Test Coverage Areas
 
 | Package | Tests | Key Coverage |
 |---------|-------|-------------|
 | `pkg/config` | 9 | Default values, env var parsing, validation of printer type, device path, rate limits, log flag |
-| `pkg/crypto` | 9 | Key pair generation, PEM file save, QR logging, Burn Protocol memory zeroing, fingerprint format, key initialization, key reuse, key rotation, private key save |
+| `pkg/crypto` | 19 (9 functional + 10 security) | Key pair generation, PEM file save, QR logging, Burn Protocol memory zeroing, fingerprint format, key initialization, key reuse, key rotation, private key save, X25519 key correctness, ECDH compatibility, ECIES roundtrip, file permissions |
 | `pkg/printer` | 3 test files (20 tests, 6 skipped — USB hw) | Mock printer operations, USB printer auto-detection, health check, device identification, PrinterManager detect/switch/list |
 | `pkg/qr` | — | QR code generation + ESC/POS rasterization (no test file yet) |
-| `pkg/api` | 2 test files (17 tests) | Admin login (success/fail/rate-limited), status, metrics, printers, key download, session management, auth middleware |
+| `pkg/api` | 8 test files (48 tests + 26 security) | Admin login (success/fail/rate-limited), status, metrics, printers, key download, session management, auth middleware, input validation, rate limiting, admin cookie security, log security, SPA/path traversal |
 | `pkg/spooler` | 2 test files (31 tests) | Thread-safe metrics (queue depth, processed/failed, duration), concurrency, retry lifecycle, graceful drain, memory zeroing, PrinterProvider switching |
 | `pkg/observability` | — | Structured JSON logger, shutdown handler (no test file yet) |
 | Integration | — | Server startup, health endpoint (including 503), key endpoint |
+| Security Suite | 50 checks (40 Go + 10 shell) | Full security claim verification via `make check-security` |
 
 ---
 

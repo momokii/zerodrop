@@ -236,6 +236,10 @@ log.Printf("[api] drop request with payload: %s", string(payload))
 - **Race detection** — `go test -race ./...`
 - **Vulnerability scanning** — `govulncheck ./...` before commits
 - **Manual security review** — before M-05 (production readiness)
+- **Automated security verification** — `make check-security` runs 50 checks (40 Go tests + 10 static analysis)
+  - Go tests: `pkg/api/security_*_test.go` (26 tests), `pkg/crypto/security_*_test.go` (14 tests)
+  - Static analysis: `scripts/security-scan.sh` (10 checks)
+  - Report: `scripts/security-report.sh` (unified PASS/FAIL summary)
 
 ---
 

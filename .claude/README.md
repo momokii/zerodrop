@@ -178,7 +178,7 @@ This is not optional. Keeping `.claude/` accurate is part of every task.
 
 ### Test Coverage
 
-- **Total tests**: 80 passing
+- **Total tests**: 120 passing (80 functional + 40 security)
 - **Race detection**: Clean (`go test -race ./...`)
 - **Vulnerabilities**: 0 (govulncheck clean)
 - **Coverage**: Good for security-critical packages

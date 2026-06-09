@@ -46,7 +46,7 @@ fi
 # S10: Only crypto/rand for all rand.Read / rand.Reader calls in security code
 # Check each file that uses rand.Read or rand.Reader and verify it imports crypto/rand
 s10_fail=false
-for f in $(grep -rl 'rand\.Read\|rand\.Reader' pkg/crypto/ pkg/api/middleware.go 2>/dev/null | grep -v "_test.go"); do
+for f in $(grep -rl 'rand\.Read\|rand\.Reader' pkg/crypto/ pkg/api/middleware.go 2>/dev/null | grep -v "_test.go" || true); do
     if ! grep -q '"crypto/rand"' "$f"; then
         fail "Cryptography" "$f uses rand.Read/Reader without crypto/rand import"
         s10_fail=true

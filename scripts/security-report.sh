@@ -43,7 +43,13 @@ echo ""
 if [ "$total_fail" -eq 0 ]; then
     echo "  ALL $total SECURITY CLAIMS VERIFIED"
 else
-    echo "  $total_fail of $total checks FAILED - review output above"
+    echo "  $total_fail of $total checks FAILED:"
+    if [ "$go_fail" -gt 0 ]; then
+        echo "    - Go Security Tests: $go_fail failures (search for '--- FAIL:.*TestSecurity_')"
+    fi
+    if [ "$scan_fail" -gt 0 ]; then
+        echo "    - Code Scanning: $scan_fail failures (search for '[FAIL]')"
+    fi
 fi
 
 echo "==============================================="
@@ -53,3 +59,7 @@ echo "  go test -v -run TestSecurity_ ./...    # Go tests"
 echo "  bash scripts/security-scan.sh          # Code scanning"
 echo "  make check-security                    # Everything"
 echo ""
+
+if [ "$total_fail" -gt 0 ]; then
+    exit 1
+fi

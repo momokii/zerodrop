@@ -8,24 +8,43 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zerodrop/terminal/pkg/config"
 	"github.com/zerodrop/terminal/pkg/printer"
 	"github.com/zerodrop/terminal/pkg/spooler"
 )
 
-func TestSecurity_AdminRoutes_BehindAuth(t *testing.T) {
-	server, _ := newSecurityTestServer(t)
+// newAdminEnabledServer creates a Server with admin routes properly wired up
+// (admin registered BEFORE the catch-all so auth middleware runs).
+func newAdminEnabledServer(t *testing.T) *Server {
+	t.Helper()
+	cfg := &config.Config{
+		PrinterType:              "mock",
+		RateLimitRequestsPerHour: 100,
+		RateLimitBurst:           10,
+		PublicKeyPath:            filepath.Join(t.TempDir(), "public_key.pem"),
+	}
+	spoolerCh := make(chan []byte, 10)
+	mockPrinter := printer.NewMockPrinter()
+	server := NewServer(cfg, spoolerCh, mockPrinter)
+
 	sessions := NewSessionStore("sec-test-token", 24*time.Hour, 5*time.Minute)
 	server.sessions = sessions
 	server.admin = NewAdminHandler(
 		sessions,
-		spooler.NewSpooler(10, printer.NewMockPrinter()),
-		printer.NewPrinterManager(printer.NewMockPrinter(), printer.PrinterInfo{ID: "mock", Name: "Mock", Type: "mock"}),
+		spooler.NewSpooler(10, mockPrinter),
+		printer.NewPrinterManager(mockPrinter, printer.PrinterInfo{ID: "mock", Name: "Mock", Type: "mock"}),
 		filepath.Join(t.TempDir(), "pub.pem"),
 		filepath.Join(t.TempDir(), "priv.pem"),
 		"test-fp",
 	)
 	server.setupAdminRoutes()
 	server.FinalizeRoutes()
+
+	return server
+}
+
+func TestSecurity_AdminRoutes_BehindAuth(t *testing.T) {
+	server := newAdminEnabledServer(t)
 
 	endpoints := []struct {
 		method string
@@ -41,11 +60,11 @@ func TestSecurity_AdminRoutes_BehindAuth(t *testing.T) {
 		rec := httptest.NewRecorder()
 		server.router.ServeHTTP(rec, req)
 
-		if rec.Code == http.StatusOK {
-			t.Errorf("[SECURITY] %s %s returned 200 without auth", ep.method, ep.path)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("[SECURITY] %s %s without auth: expected 401, got %d", ep.method, ep.path, rec.Code)
 		}
 	}
-	t.Logf("[SECURITY] Admin routes behind auth middleware: PASS")
+	t.Logf("[SECURITY] Admin routes behind auth middleware (all return 401 without session): PASS")
 }
 
 func TestSecurity_HealthEndpoint_NoAuth_Required(t *testing.T) {
@@ -65,7 +84,7 @@ func TestSecurity_HealthEndpoint_NoAuth_Required(t *testing.T) {
 func TestSecurity_SPABackend_DotEnvNotServed(t *testing.T) {
 	server, _ := newSecurityTestServer(t)
 
-	// /.env should fall through to SPA handler → index.html (not serve the file)
+	// /.env should fall through to SPA handler -> index.html (not serve the file)
 	req := httptest.NewRequest(http.MethodGet, "/.env", nil)
 	rec := httptest.NewRecorder()
 	server.router.ServeHTTP(rec, req)

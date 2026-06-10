@@ -46,7 +46,7 @@ func TestSecurity_Log_NoPayloadContentOnError(t *testing.T) {
 	if strings.TrimSpace(output) == "" {
 		t.Fatal("[SECURITY] No log output captured — test cannot verify absence of secrets")
 	}
-	t.Logf("[SECURITY] No payload content in error logs: PASS")
+	t.Logf("[SECURITY] Error log contains no payload content (only length): PASS")
 }
 
 func TestSecurity_Log_NoPayloadContentOnInvalidBase64(t *testing.T) {
@@ -72,15 +72,15 @@ func TestSecurity_Log_NoPayloadContentOnInvalidBase64(t *testing.T) {
 	if strings.TrimSpace(output) == "" {
 		t.Fatal("[SECURITY] No log output captured — test cannot verify absence of secrets")
 	}
-	t.Logf("[SECURITY] No invalid payload content in error logs: PASS")
+	t.Logf("[SECURITY] Error log contains no payload content (only parse error): PASS")
 }
 
-func TestSecurity_Log_NoAdminTokenOnFailedLogin(t *testing.T) {
+func TestSecurity_Log_FailedLogin_IsSilent(t *testing.T) {
 	buf := captureLogs(t)
 
 	handler, _ := setupAdminTest(t)
 
-	// Failed login — verify the attempted token and real token don't leak
+	// Failed login attempt
 	wrongToken := "known-wrong-token-value-12345"
 	body := `{"token":"` + wrongToken + `"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader(body))
@@ -90,14 +90,21 @@ func TestSecurity_Log_NoAdminTokenOnFailedLogin(t *testing.T) {
 
 	output := buf.String()
 
-	// Check both the attempted token and the real token
-	if strings.Contains(output, wrongToken) {
-		t.Errorf("[SECURITY] Attempted (wrong) admin token found in log output:\n%s", output)
+	// handleLogin does NOT log on failure — this IS the security property.
+	// No log output = no possible token leakage. If someone adds logging to
+	// handleLogin in the future, this test will catch it and force review.
+	if strings.TrimSpace(output) != "" {
+		// If output appeared, verify no secrets are in it
+		if strings.Contains(output, wrongToken) {
+			t.Errorf("[SECURITY] Attempted (wrong) admin token found in log output:\n%s", output)
+		}
+		if strings.Contains(output, "test-admin-token") {
+			t.Errorf("[SECURITY] Actual admin token found in log output:\n%s", output)
+		}
+		t.Logf("[SECURITY] Failed login produced log output (review for secret leakage): WARN")
+	} else {
+		t.Logf("[SECURITY] Failed login produces no log output (silent = no token leakage possible): PASS")
 	}
-	if strings.Contains(output, "test-admin-token") {
-		t.Errorf("[SECURITY] Actual admin token found in log output:\n%s", output)
-	}
-	t.Logf("[SECURITY] No admin token leaked via failed login: PASS")
 }
 
 func TestSecurity_Log_SuccessfulOps_ProduceNoSecretLogs(t *testing.T) {
@@ -106,7 +113,7 @@ func TestSecurity_Log_SuccessfulOps_ProduceNoSecretLogs(t *testing.T) {
 	server, _ := newSecurityTestServer(t)
 	handler, _ := setupAdminTest(t)
 
-	// Successful login — no secrets should be logged
+	// Successful login
 	body := `{"token":"test-admin-token"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -129,16 +136,22 @@ func TestSecurity_Log_SuccessfulOps_ProduceNoSecretLogs(t *testing.T) {
 
 	output := buf.String()
 
-	// On success paths, the server intentionally produces no log output.
-	// Verify no secrets leaked even if logging is added in the future.
-	if sessionToken != "" && strings.Contains(output, sessionToken) {
-		t.Errorf("[SECURITY] Session token found in log output after login")
+	// Both success paths are silent by design (no log.Printf on happy paths).
+	// This is a defense-in-depth test: if logging is ever added to these paths,
+	// this test will catch any secret leakage.
+	if strings.TrimSpace(output) != "" {
+		// Log output appeared — verify no secrets are in it
+		if sessionToken != "" && strings.Contains(output, sessionToken) {
+			t.Errorf("[SECURITY] Session token found in log output after login")
+		}
+		if strings.Contains(output, "test-admin-token") {
+			t.Errorf("[SECURITY] Admin token found in log output")
+		}
+		if strings.Contains(output, secretPayload) || strings.Contains(output, secretPlaintext) {
+			t.Errorf("[SECURITY] Payload content found in log output")
+		}
+		t.Logf("[SECURITY] Success paths produced log output (reviewed — no secrets found): WARN")
+	} else {
+		t.Logf("[SECURITY] Success paths produce no log output (silent = no secret leakage possible): PASS")
 	}
-	if strings.Contains(output, "test-admin-token") {
-		t.Errorf("[SECURITY] Admin token found in log output")
-	}
-	if strings.Contains(output, secretPayload) || strings.Contains(output, secretPlaintext) {
-		t.Errorf("[SECURITY] Payload content found in log output")
-	}
-	t.Logf("[SECURITY] Successful login + drop produce no secret logs: PASS")
 }

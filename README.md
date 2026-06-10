@@ -23,6 +23,7 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 - [Security Model](#security-model)
 - [USB Printer Support](#usb-printer-support)
 - [Testing](#testing)
+  - [Security Verification](#security-verification)
 - [Deployment](#deployment)
   - [Docker Deployment](#docker-deployment)
   - [Binary Deployment](#binary-deployment)

@@ -1,0 +1,544 @@
+openapi: "3.0.3"
+info:
+  title: ZeroDrop Terminal API
+  description: |
+    Air-gapped, zero-knowledge secure credential delivery terminal API.
+
+    **Security Model**: The server never possesses the plaintext payload or the
+    private key required to decrypt it. All encryption happens in the browser
+    using Web Crypto API (X25519 ECDH + AES-256-GCM).
+  version: "1.1.0"
+  contact:
+    name: ZeroDrop Terminal
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://zerodrop.example.com
+    description: Production deployment
+
+paths:
+  # ==========================================================================
+  # PUBLIC ENDPOINTS
+  # ==========================================================================
+  /key:
+    get:
+      summary: Retrieve the server's public key
+      description: |
+        Returns the Curve25519 (X25519) public key in PEM (SPKI) format.
+        The frontend uses this key to encrypt payloads before submission.
+      operationId: getPublicKey
+      tags:
+        - Public
+      responses:
+        "200":
+          description: PEM-encoded public key
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: PEM-encoded X25519 public key (SPKI format)
+                example: |
+                  -----BEGIN PUBLIC KEY-----
+                  MCowBQYDK2VuAyEACKy2WJkCeN41+phVDlKLfVqBphCvTm6L7LqV0JcVOCo=
+                  -----END PUBLIC KEY-----
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  /drop:
+    post:
+      summary: Submit an encrypted payload for printing
+      description: |
+        Accepts an encrypted payload (ciphertext), validates format, and queues
+        it for printing as a QR code on the thermal printer. The server cannot
+        decrypt the payload — it only handles ciphertext.
+      operationId: submitDrop
+      tags:
+        - Public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - payload
+              properties:
+                payload:
+                  type: string
+                  description: |
+                    Encrypted payload in format `ZD1:<base64_ciphertext>`.
+                    The ZD1: prefix identifies the version. Remainder must be
+                    valid base64. Maximum 400 characters total.
+                  pattern: "^ZD1:[A-Za-z0-9+/=]+$"
+                  maxLength: 400
+                  example: "ZD1:5L6gB7H8V9c0X1d2F3g4H5j6K7l8Z9x0C1v2B3n4M5"
+      responses:
+        "202":
+          description: Payload accepted and queued for printing
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: queued
+                  message:
+                    type: string
+                    example: Payload queued for printing
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "503":
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /health:
+    get:
+      summary: Health check endpoint
+      description: |
+        Returns the server health status including printer availability.
+        Returns 200 if the system is healthy and printer is available.
+        Returns 503 if the printer is offline.
+      operationId: getHealth
+      tags:
+        - Public
+      responses:
+        "200":
+          description: System healthy and printer available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        "503":
+          description: Server running but printer unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  # ==========================================================================
+  # ADMIN ENDPOINTS
+  # ==========================================================================
+  /api/admin/login:
+    post:
+      summary: Authenticate as admin
+      description: |
+        Validates the admin token using constant-time comparison and sets a
+        session cookie. Login is rate-limited to 10 attempts per 15 minutes
+        per IP address.
+      operationId: adminLogin
+      tags:
+        - Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+                  description: ADMIN_TOKEN value
+                  example: "your-secure-admin-token"
+      responses:
+        "200":
+          description: Login successful, session cookie set
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                description: |
+                  HttpOnly, SameSite=Lax, Path=/api/admin session cookie
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+
+  /api/admin/status:
+    get:
+      summary: Get server status
+      description: |
+        Returns server version, uptime, and key information.
+        Requires a valid admin session cookie.
+      operationId: getAdminStatus
+      tags:
+        - Admin
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Server status information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminStatus'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/admin/metrics:
+    get:
+      summary: Get spooler metrics
+      description: |
+        Returns spooler performance metrics including queue depth, processed
+        and failed job counts, and print duration. Requires admin session.
+      operationId: getAdminMetrics
+      tags:
+        - Admin
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Spooler metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpoolerMetrics'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/admin/printers:
+    get:
+      summary: List detected printers
+      description: |
+        Returns all detected printers and the currently active printer ID.
+        Triggers a fresh detection scan. Requires admin session.
+      operationId: listPrinters
+      tags:
+        - Admin
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Printer list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrinterList'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/admin/printers/active:
+    post:
+      summary: Switch active printer
+      description: |
+        Switches the active printer to a detected printer by ID.
+        Requires admin session.
+      operationId: setActivePrinter
+      tags:
+        - Admin
+      security:
+        - AdminSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+                  description: Printer ID from the printers list
+                  example: "mock"
+      responses:
+        "200":
+          description: Active printer switched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/admin/key:
+    get:
+      summary: Download private key PEM file
+      description: |
+        Downloads the private key PEM file. Requires admin session.
+        **Warning**: Exposing the private key allows decryption of all
+        past and future payloads. Handle with care.
+      operationId: downloadPrivateKey
+      tags:
+        - Admin
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Private key file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "404":
+          description: Private key file not found on disk
+
+  /api/admin/key/qr:
+    get:
+      summary: Download private key QR code image
+      description: |
+        Downloads a PNG image of the private key QR code.
+        Requires admin session. Supports `private_key_qr.png` (PEM format)
+        and `private_key_jwk_qr.png` (JWK format).
+      operationId: downloadKeyQR
+      tags:
+        - Admin
+      security:
+        - AdminSession: []
+      parameters:
+        - name: file
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - private_key_qr.png
+              - private_key_jwk_qr.png
+          description: QR code image file name
+      responses:
+        "200":
+          description: QR code PNG image
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/admin/key/rotate:
+    post:
+      summary: Rotate key pair
+      description: |
+        Deletes the current key files. A new key pair will be generated on
+        the next server restart. **Warning**: All previously encrypted
+        payloads will become undecryptable after rotation.
+        Requires admin session.
+      operationId: rotateKeyPair
+      tags:
+        - Admin
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Key files deleted, restart required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  message:
+                    type: string
+                    example: "Key files deleted. Restart the server to generate a new key pair."
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+# ==========================================================================
+# COMPONENTS
+# ==========================================================================
+components:
+  securitySchemes:
+    AdminSession:
+      type: apiKey
+      in: cookie
+      name: zerodrop_admin_session
+      description: |
+        Admin session cookie obtained from `POST /api/admin/login`.
+        HttpOnly, SameSite=Lax, HMAC-signed, 24-hour default expiry.
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - healthy
+            - unhealthy
+          example: healthy
+        service:
+          type: string
+          example: zerodrop-terminal
+        printer:
+          type: object
+          properties:
+            type:
+              type: string
+              example: mock
+            available:
+              type: boolean
+              example: true
+            status:
+              type: string
+              example: healthy
+            device_path:
+              type: string
+              example: /dev/usb/lp0
+            model:
+              type: string
+              example: POS-5890 / Generic ESC/POS
+
+    AdminStatus:
+      type: object
+      properties:
+        version:
+          type: string
+          example: "1.1.0"
+        uptime_seconds:
+          type: number
+          example: 3600.5
+        key:
+          type: object
+          properties:
+            fingerprint:
+              type: string
+              example: "a1b2c3d4e5f6..."
+            generated_at:
+              type: string
+              format: date-time
+              example: "2026-06-23T12:00:00Z"
+            private_key_on_disk:
+              type: boolean
+              example: true
+
+    SpoolerMetrics:
+      type: object
+      properties:
+        queue_depth:
+          type: integer
+          example: 0
+        max_queue_depth:
+          type: integer
+          example: 3
+        total_processed:
+          type: integer
+          example: 42
+        total_failed:
+          type: integer
+          example: 1
+        last_print_time:
+          type: string
+          format: date-time
+          example: "2026-06-23T12:00:00Z"
+        last_print_ms:
+          type: integer
+          example: 2500
+        spooler_start_time:
+          type: string
+          format: date-time
+          example: "2026-06-23T08:00:00Z"
+
+    PrinterList:
+      type: object
+      properties:
+        printers:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrinterInfo'
+        active_printer:
+          type: string
+          example: "mock"
+
+    PrinterInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique printer identifier (device path or "mock")
+          example: "mock"
+        name:
+          type: string
+          description: Human-readable model name
+          example: "Mock Printer (stdout)"
+        type:
+          type: string
+          enum:
+            - mock
+            - usb
+          example: mock
+        device:
+          type: string
+          description: Device path (empty for mock)
+          example: ""
+
+    APIError:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code
+          example: "INVALID_PAYLOAD"
+        message:
+          type: string
+          description: Human-readable error description
+          example: "Payload exceeds maximum length of 400 characters"
+        details:
+          type: object
+          description: Optional additional error context
+          properties: {}
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+    Unauthorized:
+      description: Authentication required or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+    RateLimited:
+      description: Too many requests
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            description: Seconds to wait before retrying
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+    ServiceUnavailable:
+      description: Server temporarily unavailable (spooler full or printer offline)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'

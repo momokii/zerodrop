@@ -108,7 +108,8 @@ func NewAdminHandler(
 func (h *AdminHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	ip := extractIP(r.RemoteAddr)
 	if !h.loginLimiter.allow(ip) {
-		http.Error(w, `{"error":"too many login attempts"}`, http.StatusTooManyRequests)
+		addRetryAfter(w, http.StatusTooManyRequests)
+		APIError{Code: http.StatusTooManyRequests, Message: "Too many login attempts"}.Send(w)
 		return
 	}
 
@@ -116,13 +117,13 @@ func (h *AdminHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+		ErrBadRequest.Send(w)
 		return
 	}
 
 	session, ok := h.sessions.Login(req.Token)
 	if !ok {
-		http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+		ErrUnauthorized.Send(w)
 		return
 	}
 
@@ -215,6 +216,15 @@ func (h *AdminHandler) handleSetActivePrinter(w http.ResponseWriter, r *http.Req
 		ID string `json:"id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ErrBadRequest.Send(w)
+		return
+	}
+
+	if err := h.printerMgr.SetActive(req.ID); err != nil {
+		APIError{Code: http.StatusBadRequest, Message: err.Error()}.Send(w)
+		return
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
 		return
 	}
@@ -231,9 +241,7 @@ func (h *AdminHandler) handleSetActivePrinter(w http.ResponseWriter, r *http.Req
 func (h *AdminHandler) handleKeyGrant(w http.ResponseWriter, r *http.Request) {
 	session := extractSession(r)
 	if session == "" || !h.sessions.Valid(session) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		ErrUnauthorized.Send(w)
 		return
 	}
 
@@ -241,16 +249,12 @@ func (h *AdminHandler) handleKeyGrant(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		ErrBadRequest.Send(w)
 		return
 	}
 
 	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(h.sessions.adminKey)) != 1 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid token"})
+		ErrUnauthorized.Send(w)
 		return
 	}
 
@@ -265,7 +269,7 @@ func (h *AdminHandler) handleKeyGrant(w http.ResponseWriter, r *http.Request) {
 func (h *AdminHandler) handleKeyDownload(w http.ResponseWriter, r *http.Request) {
 	data, err := os.ReadFile(h.privateKeyPath)
 	if err != nil {
-		http.Error(w, `{"error":"private key not found on disk"}`, http.StatusNotFound)
+		APIError{Code: http.StatusNotFound, Message: "Private key not found on disk"}.Send(w)
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -276,12 +280,12 @@ func (h *AdminHandler) handleKeyDownload(w http.ResponseWriter, r *http.Request)
 func (h *AdminHandler) handleKeyQRDownload(w http.ResponseWriter, r *http.Request) {
 	filename := r.URL.Query().Get("file")
 	if filename != "private_key_qr.png" && filename != "private_key_jwk_qr.png" {
-		http.Error(w, `{"error":"invalid file"}`, http.StatusBadRequest)
+		APIError{Code: http.StatusBadRequest, Message: "Invalid file"}.Send(w)
 		return
 	}
 	path := filepath.Join(filepath.Dir(h.privateKeyPath), filename)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		http.Error(w, `{"error":"QR file not found"}`, http.StatusNotFound)
+		APIError{Code: http.StatusNotFound, Message: "QR file not found"}.Send(w)
 		return
 	}
 	http.ServeFile(w, r, path)
@@ -298,7 +302,7 @@ func (h *AdminHandler) handleKeyRotate(w http.ResponseWriter, r *http.Request) {
 
 	if len(errs) > 0 {
 		log.Printf("Admin key rotation failed: %s", strings.Join(errs, "; "))
-		http.Error(w, fmt.Sprintf(`{"error":"key rotation failed: %s"}`, strings.Join(errs, "; ")), http.StatusInternalServerError)
+		APIError{Code: http.StatusInternalServerError, Message: fmt.Sprintf("Key rotation failed: %s", strings.Join(errs, "; "))}.Send(w)
 		return
 	}
 

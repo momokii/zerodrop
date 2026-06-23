@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feature/*, fix/*]
+  pull_request:
+    branches: [main]
+
+env:
+  GO_VERSION: "1.26"
+  NODE_VERSION: "20"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Backend: test with race detection, vet, build, security check
+  # ---------------------------------------------------------------------------
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Test with race detection
+        run: go test ./... -race -count=1
+
+      - name: Build binary
+        run: go build -o bin/zerodrop ./cmd/zerodrop
+
+      - name: Check for known vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+        continue-on-error: true
+
+  # ---------------------------------------------------------------------------
+  # Frontend: install, lint, type-check, build
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify build output
+        run: |
+          test -f dist/index.html || { echo "Missing dist/index.html"; exit 1; }
+          echo "Frontend build verified: $(du -sh dist | cut -f1)"
+
+  # ---------------------------------------------------------------------------
+  # Docker: build images (smoke test - verify Dockerfiles are valid)
+  # ---------------------------------------------------------------------------
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: zerodrop:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build reader image
+        run: docker build -f Dockerfile.reader -t zerodrop-reader:ci .

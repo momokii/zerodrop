@@ -52,6 +52,12 @@ type Config struct {
 	// must re-authenticate to view/download private key material.
 	// Default: 5m.
 	KeyGrantTTL time.Duration
+
+	// CORSOrigin is the allowed origin for CORS requests.
+	// Default: empty (no CORS headers, same-origin only).
+	// Set to the frontend origin (e.g. "http://localhost:3000") when the
+	// frontend dev server runs on a different port.
+	CORSOrigin string
 }
 
 // DefaultConfig returns a configuration with default values
@@ -203,6 +209,11 @@ func LoadFromEnv() (*Config, error) {
 		config.KeyGrantTTL = ttl
 	} else {
 		config.KeyGrantTTL = 5 * time.Minute
+	}
+
+	// Optional: CORS_ORIGIN
+	if val := os.Getenv("CORS_ORIGIN"); val != "" {
+		config.CORSOrigin = val
 	}
 
 	return config, nil

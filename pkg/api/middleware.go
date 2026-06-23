@@ -1,14 +1,94 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
-	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
 )
+
+// contextKey is a private type for context keys to avoid collisions.
+type contextKey string
+
+const (
+	// RequestIDKey is the context key for the request ID.
+	RequestIDKey contextKey = "request_id"
+)
+
+// RequestID is middleware that assigns a unique ID to every request.
+// The ID is set on the response as the X-Request-ID header and stored
+// in the request context for use by downstream handlers and loggers.
+func RequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get("X-Request-ID")
+		if id == "" {
+			id = generateRequestID()
+		}
+		w.Header().Set("X-Request-ID", id)
+		ctx := context.WithValue(r.Context(), RequestIDKey, id)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// generateRequestID creates a 16-byte hex-encoded request ID.
+func generateRequestID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// GetRequestID extracts the request ID from a context (set by RequestID middleware).
+// Returns empty string if no request ID is present.
+func GetRequestID(ctx context.Context) string {
+	if id, ok := ctx.Value(RequestIDKey).(string); ok {
+		return id
+	}
+	return ""
+}
+
+// CORSMiddleware returns middleware that sets CORS headers based on the
+// configured origin. When origin is empty, no CORS headers are set
+// (same-origin requests only — this is the default and recommended for
+// production since the SPA is served by the Go backend on the same origin).
+//
+// When origin is set (e.g. "http://localhost:3000" for frontend dev server),
+// the middleware allows cross-origin requests from that origin with standard
+// methods and credentials.
+func CORSMiddleware(origin string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if origin == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Session-Token, X-Request-ID")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// addRetryAfter sets the Retry-After header on the response if the status
+// code is 429 (Too Many Requests). The retry delay is calculated from the
+// rate limit window (1 hour).
+func addRetryAfter(w http.ResponseWriter, code int) {
+	if code == http.StatusTooManyRequests {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(time.Hour.Seconds())))
+	}
+}
 
 // SessionStore manages admin authentication sessions and key access grants.
 type SessionStore struct {
@@ -118,12 +198,7 @@ func (s *SessionStore) RequireKeyGrant(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session := extractSession(r)
 		if session == "" || !s.HasKeyGrant(session) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "key_access_denied",
-				"message": "Re-authenticate at POST /api/admin/key/grant to access key material.",
-			})
+			APIError{Code: http.StatusForbidden, Message: "Key access denied. Re-authenticate at POST /api/admin/key/grant to access key material."}.Send(w)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -162,9 +237,7 @@ func (s *SessionStore) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session := extractSession(r)
 		if session == "" || !s.Valid(session) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+			ErrUnauthorized.Send(w)
 			return
 		}
 		next.ServeHTTP(w, r)

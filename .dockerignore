@@ -1,0 +1,43 @@
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Agent/IDE configs
+.claude/
+.idea/
+.vscode/
+.omo/
+
+# Documentation
+docs/
+*.md
+
+# Scripts (not needed at runtime)
+scripts/
+
+# Build artifacts
+Makefile
+Makefile.deploy
+bin/
+
+# Environment files
+.env
+.env.example
+.env.*
+*.env
+
+# Test and coverage outputs
+coverage.out
+coverage.html
+*.test
+*.out
+*.log
+
+# Node.js
+frontend/node_modules/
+frontend/.vite/
+
+# OS files
+.DS_Store
+Thumbs.db

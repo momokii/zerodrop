@@ -87,11 +87,8 @@ func (rl *rateLimiter) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := extractIP(r.RemoteAddr)
 		if !rl.allow(ip) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "rate limit exceeded. Try again later.",
-			})
+			addRetryAfter(w, http.StatusTooManyRequests)
+			ErrTooManyReqs.Send(w)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -156,11 +153,7 @@ func (s *Server) EnableAdmin(
 // complete — called from EnableAdmin and from main.go when admin is disabled.
 func (s *Server) FinalizeRoutes() {
 	s.apiRouter.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "not found",
-		})
+		ErrNotFound.Send(w)
 	}))
 }
 
@@ -187,6 +180,13 @@ func (s *Server) setupAdminRoutes() {
 
 // setupRoutes configures all HTTP routes
 func (s *Server) setupRoutes() {
+	// Global middlewares: RequestID and CORS wrap the entire router.
+	// RequestID assigns a unique ID to every request for log correlation.
+	// CORS allows cross-origin requests when the frontend dev server runs
+	// on a different port (controlled by CORS_ORIGIN env var).
+	s.router.Use(RequestID)
+	s.router.Use(CORSMiddleware(s.config.CORSOrigin))
+
 	// Rate limiter for API endpoints
 	rl := newRateLimiter(s.config.RateLimitRequestsPerHour)
 
@@ -228,8 +228,8 @@ func (s *Server) handleGetKey(w http.ResponseWriter, r *http.Request) {
 	// Read public key from file
 	publicKeyPEM, err := os.ReadFile(s.config.PublicKeyPath)
 	if err != nil {
-		http.Error(w, "Failed to read public key", http.StatusInternalServerError)
 		log.Printf("Error reading public key: %v", err)
+		ErrInternalServer.Send(w)
 		return
 	}
 
@@ -287,15 +287,15 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 	// Parse JSON request
 	var req DropRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON request", http.StatusBadRequest)
 		log.Printf("Error decoding request: %v", err)
+		ErrBadRequest.Send(w)
 		return
 	}
 
 	// Validate payload length (including ZD1: prefix, max 400 chars)
 	if len(req.Payload) > 400 {
-		http.Error(w, "Payload exceeds 400 character limit", http.StatusBadRequest)
 		log.Printf("Payload too long: %d chars", len(req.Payload))
+		APIError{Code: http.StatusBadRequest, Message: "Payload exceeds 400 character limit"}.Send(w)
 		return
 	}
 
@@ -307,8 +307,8 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 		var err error
 		ciphertext, err = base64.StdEncoding.DecodeString(ciphertextStr)
 		if err != nil {
-			http.Error(w, "Invalid base64 in ciphertext after ZD1: prefix", http.StatusBadRequest)
 			log.Printf("Invalid base64 after ZD1: prefix: %v", err)
+			APIError{Code: http.StatusBadRequest, Message: "Invalid base64 in ciphertext after ZD1: prefix"}.Send(w)
 			return
 		}
 	} else {
@@ -316,8 +316,8 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 		var err error
 		ciphertext, err = base64.StdEncoding.DecodeString(req.Payload)
 		if err != nil {
-			http.Error(w, "Payload must be valid base64", http.StatusBadRequest)
 			log.Printf("Invalid base64 in payload: %v", err)
+			APIError{Code: http.StatusBadRequest, Message: "Payload must be valid base64"}.Send(w)
 			return
 		}
 	}
@@ -331,8 +331,8 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 		// Successfully queued
 	default:
 		// Spooler is full (shouldn't happen with buffered channel)
-		http.Error(w, "Server busy, please retry", http.StatusServiceUnavailable)
 		log.Printf("Spooler full, rejected request")
+		APIError{Code: http.StatusServiceUnavailable, Message: "Server busy, please retry"}.Send(w)
 		return
 	}
 
@@ -386,7 +386,7 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Get the absolute path to prevent directory traversal
 	path, err := filepath.Abs(filepath.Join(h.staticFilePath, r.URL.Path))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		ErrBadRequest.Send(w)
 		return
 	}
 
@@ -401,7 +401,7 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, filepath.Join(h.staticFilePath, h.indexPath))
 		return
 	} else if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		ErrInternalServer.Send(w)
 		return
 	}
 

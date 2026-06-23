@@ -22,6 +22,12 @@ services:
       - TLS_ENABLED=${TLS_ENABLED:-false}
       - ADMIN_TOKEN=${ADMIN_TOKEN:-}
       - KEY_ROTATE=${KEY_ROTATE:-false}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     volumes:
       # Persist public key
       - ./data:/app/data

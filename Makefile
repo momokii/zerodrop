@@ -191,6 +191,19 @@ dev-usb: stop
 	@echo "  Press Ctrl+C to stop"
 	PRINTER_TYPE=usb LOG_ENABLED=false go run ./cmd/zerodrop
 
+dev-hot:
+	@echo "→ Starting development server with hot reload (air)..."
+	@if ! command -v air > /dev/null 2>&1; then \
+		echo "  ⚠️  air not installed. Install it: go install github.com/air-verse/air@latest"; \
+		echo "  Falling back to regular dev server..."; \
+		$(MAKE) dev; \
+		exit 0; \
+	fi
+	@if [ ! -d "$(FRONTEND_DIST)" ]; then \
+		echo "  ⚠️  frontend/dist/ not found — run 'make build-frontend' first for the UI"; \
+	fi
+	PRINTER_TYPE=mock LOG_ENABLED=false air
+
 dev-frontend:
 	@echo "→ Starting frontend dev server..."
 	cd $(FRONTEND_DIR) && npm run dev

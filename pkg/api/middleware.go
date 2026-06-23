@@ -1,12 +1,18 @@
 package api
 
 import (
+	"bufio"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"log"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -79,6 +85,102 @@ func CORSMiddleware(origin string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// SecurityHeaders is middleware that sets security-related HTTP headers
+// to harden the application against common web vulnerabilities.
+func SecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), fullscreen=(self)")
+		w.Header().Set("X-XSS-Protection", "0")
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; "+
+				"script-src 'self' 'unsafe-inline' blob:; "+
+				"style-src 'self' 'unsafe-inline'; "+
+				"img-src 'self' data: blob:; "+
+				"media-src 'self' blob:; "+
+				"connect-src 'self'; "+
+				"frame-ancestors 'none'")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequestLogger is middleware that logs every HTTP request with method, path,
+// status code, duration, and request ID.
+func RequestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		duration := time.Since(start)
+		reqID := GetRequestID(r.Context())
+		log.Printf("[%s] %s %s %d %s",
+			reqID,
+			r.Method,
+			r.URL.Path,
+			sw.status,
+			duration,
+		)
+	})
+}
+
+// statusWriter wraps http.ResponseWriter to capture the status code for logging.
+type statusWriter struct {
+	http.ResponseWriter
+	status  int
+	written bool
+}
+
+func (w *statusWriter) WriteHeader(status int) {
+	if !w.written {
+		w.status = status
+		w.written = true
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if !w.written {
+		w.status = http.StatusOK
+		w.written = true
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, fmt.Errorf("statusWriter: ResponseWriter does not implement http.Hijacker")
+}
+
+// GzipMiddleware compresses HTTP responses with gzip when the client
+// indicates support via Accept-Encoding. Only wraps responses; compressed
+// content is streamed with Content-Encoding: gzip header set automatically.
+func GzipMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		next.ServeHTTP(&gzipResponseWriter{ResponseWriter: w, Writer: gz}, r)
+	})
+}
+
+// gzipResponseWriter wraps http.ResponseWriter to write gzip-compressed data.
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	Writer io.Writer
+}
+
+func (g *gzipResponseWriter) Write(b []byte) (int, error) {
+	return g.Writer.Write(b)
 }
 
 // addRetryAfter sets the Retry-After header on the response if the status

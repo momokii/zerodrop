@@ -427,6 +427,34 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
         let qrDetected = false; // true once QR is captured — stops scan loop
         let cameraStream = null; // reference for cleanup on clear
 
+        /**
+         * Acquire camera stream with automatic fallback.
+         * Tries rear-facing camera first, falls back to front-facing
+         * if the device has no rear camera (OverconstrainedError).
+         * Throws on other errors (NotAllowedError, NotFoundError, etc.).
+         */
+        async function acquireCamera() {
+            try {
+                return await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 640, max: 640 },
+                        height: { ideal: 480, max: 480 }
+                    }
+                });
+            } catch (err) {
+                if (err.name !== 'OverconstrainedError') throw err;
+                // No rear camera — fall back to front-facing
+                return await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 640, max: 640 },
+                        height: { ideal: 480, max: 480 }
+                    }
+                });
+            }
+        }
+
         async function initCamera() {
             // Check for secure context — camera access requires HTTPS (or localhost).
             // navigator.mediaDevices is undefined over HTTP from non-localhost origins.
@@ -440,13 +468,7 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                 return;
             }
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: 'environment',
-                        width: { ideal: 640, max: 640 },
-                        height: { ideal: 480, max: 480 }
-                    }
-                });
+                const stream = await acquireCamera();
                 cameraStream = stream;
                 video.srcObject = stream;
                 showStatus('Scanning...', 'scanning');
@@ -454,6 +476,7 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
             } catch (err) {
                 const reason = err.name === 'NotAllowedError' ? 'Camera permission denied by user' :
                                err.name === 'NotFoundError' ? 'No camera found on this device' :
+                               err.name === 'OverconstrainedError' ? 'No suitable camera found' :
                                (err.message || err.name);
                 showStatus('Camera access denied: ' + reason + ' — You can paste the ZD1: payload manually below.', 'error');
             }
@@ -859,9 +882,7 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
             scanKeyBtn.textContent = '⏹ Stop Scanning...';
 
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
-                });
+                const stream = await acquireCamera();
 
                 const scanVideo = document.createElement('video');
                 scanVideo.srcObject = stream;
@@ -922,7 +943,9 @@ PEM: -----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----'></textarea>
                 scanningPrivateKey = false;
                 scanKeyBtn.textContent = '📷 Scan Private Key QR';
                 const reason = err.name === 'NotAllowedError' ? 'Camera permission denied' :
-                               err.name === 'NotFoundError' ? 'No camera found' : (err.message || err.name);
+                               err.name === 'NotFoundError' ? 'No camera found' :
+                               err.name === 'OverconstrainedError' ? 'No suitable camera' :
+                               (err.message || err.name);
                 showStatus('Camera error: ' + reason + ' — paste the key manually instead.', 'error');
             }
         });

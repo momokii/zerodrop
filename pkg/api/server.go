@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,10 @@ import (
 	"github.com/zerodrop/terminal/pkg/printer"
 	"github.com/zerodrop/terminal/pkg/spooler"
 )
+
+// serverVersion is the current version of ZeroDrop Terminal.
+// Bump this with each release to enable operators to verify deployments.
+const serverVersion = "1.2.0"
 
 // tlsErrorFilter discards Go runtime log lines about expected TLS handshake
 // failures (e.g. clients that don't trust the self-signed cert, or HTTP
@@ -112,6 +117,7 @@ type Server struct {
 	apiRouter *mux.Router // subrouter for /api/* — admin routes register here
 	admin     *AdminHandler
 	sessions  *SessionStore
+	startTime time.Time   // when the server started, for uptime tracking
 }
 
 // DropRequest represents the JSON payload for /drop endpoint
@@ -122,10 +128,11 @@ type DropRequest struct {
 // NewServer creates a new API server
 func NewServer(cfg *config.Config, spooler chan []byte, printer interface{}) *Server {
 	s := &Server{
-		config:  cfg,
-		spooler: spooler,
-		printer: printer,
-		router:  mux.NewRouter(),
+		config:    cfg,
+		spooler:   spooler,
+		printer:   printer,
+		router:    mux.NewRouter(),
+		startTime: time.Now(),
 	}
 
 	s.setupRoutes()
@@ -180,11 +187,16 @@ func (s *Server) setupAdminRoutes() {
 
 // setupRoutes configures all HTTP routes
 func (s *Server) setupRoutes() {
-	// Global middlewares: RequestID and CORS wrap the entire router.
-	// RequestID assigns a unique ID to every request for log correlation.
-	// CORS allows cross-origin requests when the frontend dev server runs
-	// on a different port (controlled by CORS_ORIGIN env var).
+	// Global middlewares wrap the entire router. Order matters:
+	// 1. RequestID — assigns unique ID to every request, earliest so downstream middleware can use it
+	// 2. SecurityHeaders — sets CSP, X-Frame-Options, etc. before any response writing
+	// 3. GzipMiddleware — compresses responses when client supports it (before response body is written)
+	// 4. RequestLogger — logs every request with method, path, status, duration, request ID
+	// 5. CORSMiddleware — handles CORS headers for cross-origin frontend dev server
 	s.router.Use(RequestID)
+	s.router.Use(SecurityHeaders)
+	s.router.Use(GzipMiddleware)
+	s.router.Use(RequestLogger)
 	s.router.Use(CORSMiddleware(s.config.CORSOrigin))
 
 	// Rate limiter for API endpoints
@@ -238,14 +250,25 @@ func (s *Server) handleGetKey(w http.ResponseWriter, r *http.Request) {
 	w.Write(publicKeyPEM)
 }
 
-// handleHealth returns server health status
-// Returns HTTP 200 if the system is operational, HTTP 503 if printer is unavailable
+// handleHealth returns server health status with version, uptime, and memory stats.
+// Returns HTTP 200 if the system is operational, HTTP 503 if printer is unavailable.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	uptime := time.Since(s.startTime).Round(time.Second).String()
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+
 	health := map[string]interface{}{
-		"status":  "healthy",
-		"service": "zerodrop-terminal",
+		"status":       "healthy",
+		"service":      "zerodrop-terminal",
+		"version":      serverVersion,
+		"uptime":       uptime,
+		"started_at":   s.startTime.UTC().Format(time.RFC3339),
+		"goroutines":   runtime.NumGoroutine(),
+		"memory_alloc": memStats.Alloc,
+		"memory_sys":   memStats.Sys,
+		"gc_cycles":    memStats.NumGC,
 	}
 
 	// Check printer availability
@@ -267,7 +290,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 		if !available {
 			health["status"] = "unhealthy"
-			w.WriteHeader(http.StatusServiceUnavailable) // 503
+			w.WriteHeader(http.StatusServiceUnavailable)
 			json.NewEncoder(w).Encode(health)
 			return
 		}
@@ -344,10 +367,20 @@ func (s *Server) handleDrop(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Start begins listening for HTTP requests
+// Start begins listening for HTTP requests with read/write timeouts.
+// ReadTimeout limits how long the server waits to read the full request
+// (headers + body). WriteTimeout limits how long the server has to write
+// the response. Both prevent slow-client attacks and hung connections.
 func (s *Server) Start(addr string) error {
 	log.Printf("API server starting on %s", addr)
-	return http.ListenAndServe(addr, s.router)
+	server := &http.Server{
+		Addr:         addr,
+		Handler:      s.router,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+	return server.ListenAndServe()
 }
 
 // ServeTLS starts listening for HTTPS requests using the provided
@@ -360,8 +393,11 @@ func (s *Server) ServeTLS(addr string, certPEM, keyPEM []byte) error {
 	}
 
 	server := &http.Server{
-		Addr:    addr,
-		Handler: s.router,
+		Addr:         addr,
+		Handler:      s.router,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,

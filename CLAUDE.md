@@ -142,7 +142,8 @@ If any answer is "no", fix it before ending the session.
 - **Task Queue**: `.claude/state/TASK_QUEUE.md` (5 milestones + 7 v1.1 tasks + v1.2 structural upgrades, all complete)
 - **Standards**: All `.claude/` files updated with Go-specific conventions
 - **OpenAPI Spec**: `docs/api/openapi.yaml` (OpenAPI 3.0 specification for all endpoints)
-- **Upgrade Recommendations**: `docs/plans/zero-drop-v1.2-upgrade-recommendations.md` (v1.2 structural upgrade recap + future recommendations)
+- **Upgrade Recommendations (v1.2)**: `docs/plans/zero-drop-v1.2-upgrade-recommendations.md` (v1.2 structural upgrade recap + future recommendations)
+- **Upgrade Recommendations (v1.3+)**: `docs/plans/zero-drop-v1.3-recommendations.md` (post-v1.2 prioritized upgrade recommendations — P0/P1/P2/P3)
 
 ### Security Notes (Critical)
 

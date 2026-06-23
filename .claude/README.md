@@ -51,7 +51,8 @@ docs/
 │   └── PRD-001-zerodrop-terminal-v1.0.md  # Complete PRD for v1.0
 ├── plans/
 │   ├── v1.1-admin-dashboard.md  # v1.1 implementation plan (7 tasks)
-│   └── zero-drop-v1.2-upgrade-recommendations.md  # v1.2 structural upgrade recap + recommendations
+│   ├── zero-drop-v1.2-upgrade-recommendations.md  # v1.2 structural upgrade recap + recommendations
+│   └── zero-drop-v1.3-recommendations.md  # Post-v1.2 prioritized upgrade recommendations (P0/P1/P2/P3)
 ├── api/
 │   └── openapi.yaml           # OpenAPI 3.0 specification for all endpoints
 └── OVERVIEW.md             # Simple explanation for stakeholders

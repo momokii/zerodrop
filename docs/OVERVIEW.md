@@ -66,7 +66,16 @@ It works by:
 - Key rotation via `KEY_ROTATE=true` or admin dashboard
 - Burn Protocol still runs — key zeroed from RAM after initial QR display
 
-### 8. Production Ready
+### 8. Security Hardening
+- **Security Headers** — CSP, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and `Permissions-Policy` set on every HTTP response
+- **HTTP Timeouts** — ReadTimeout (10s), WriteTimeout (15s), IdleTimeout (60s) prevent slow-client attacks and hung connections
+- **Gzip Compression** — API responses compressed automatically, reducing bandwidth by ~80%
+
+### 9. Operational Observability
+- **Request Logging** — Every HTTP request logged with method, path, status code, duration, and a unique request ID for correlation
+- **Enhanced Health Endpoint** — `GET /health` returns version, uptime, goroutine count, and memory stats (alloc, sys, GC cycles) for real-time monitoring
+
+### 10. Production Ready
 - Docker Compose setup — one command to start
 - Structured logging (optional, privacy-conscious)
 - Health check endpoint with printer status

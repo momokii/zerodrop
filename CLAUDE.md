@@ -78,7 +78,7 @@ If any answer is "no", fix it before ending the session.
 
 ## Current Status
 
-**Phase:** v1.1 Implementation Complete — Ready for Merge (branch: `feature/v1.1-admin-dashboard`)
+**Phase:** v1.2 Complete — v1.1 Admin Dashboard + v1.2 Structural & Security Upgrades (on main)
 
 ### Product Definition
 
@@ -109,6 +109,12 @@ If any answer is "no", fix it before ending the session.
 - **Offline decryption**: `static/reader.html` works completely offline with no external dependencies (v1.1: includes camera-based QR scanning for private key import)
 - **SPA serving**: Go backend serves React frontend with client-side routing fallback
 - **Admin dashboard (v1.1)**: React page at `/admin` with token auth, monitoring, printer management, key management
+- **Middleware chain (v1.2)**: RequestID → SecurityHeaders → Gzip → RequestLogger → CORS applied globally
+- **Security headers (v1.2)**: CSP (`default-src 'self'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy` set on every response
+- **Request logging (v1.2)**: Every HTTP request logged with method, path, status, duration, and unique request ID
+- **Gzip compression (v1.2)**: API responses compressed automatically when client supports `Accept-Encoding: gzip`
+- **HTTP timeouts (v1.2)**: ReadTimeout (10s), WriteTimeout (15s), IdleTimeout (60s) on both HTTP and TLS servers
+- **Enhanced health (v1.2)**: `/health` returns version (1.2.0), uptime, goroutines, memory stats for operational monitoring
 
 ### Implementation Status
 
@@ -120,6 +126,7 @@ If any answer is "no", fix it before ending the session.
 | M-04 | ✅ DONE | USB Printer & Health Check |
 | M-05 | ✅ DONE | Frontend & Production Readiness |
 | v1.1 | ✅ DONE | Admin Dashboard & Key Persistence (7 tasks: persistent keys, spooler metrics, PrinterManager, admin auth, admin API, admin dashboard, QR key scan) |
+| v1.2 | ✅ DONE | Structural & Security Upgrades: OSS files, OpenAPI spec, APIError typed responses, RequestID/CORS/SecurityHeaders/RequestLogger/Gzip middleware, HTTP timeouts, enhanced health endpoint, CI/CD pipeline, pkg/qr tests (12), pkg/observability tests (13), camera fallback in reader.html, docs/plans/zero-drop-v1.2-upgrade-recommendations.md |
 
 ### Open Questions
 
@@ -131,9 +138,11 @@ If any answer is "no", fix it before ending the session.
 
 - **PRD**: `docs/prd/PRD-001-zerodrop-terminal-v1.0.md` (complete)
 - **Overview**: `docs/OVERVIEW.md` (stakeholder-friendly explanation)
-- **Decisions Log**: `.claude/state/DECISIONS_LOG.md` (40 decisions recorded)
-- **Task Queue**: `.claude/state/TASK_QUEUE.md` (5 milestones + 7 v1.1 tasks, all complete)
+- **Decisions Log**: `.claude/state/DECISIONS_LOG.md` (40+ decisions recorded)
+- **Task Queue**: `.claude/state/TASK_QUEUE.md` (5 milestones + 7 v1.1 tasks + v1.2 structural upgrades, all complete)
 - **Standards**: All `.claude/` files updated with Go-specific conventions
+- **OpenAPI Spec**: `docs/api/openapi.yaml` (OpenAPI 3.0 specification for all endpoints)
+- **Upgrade Recommendations**: `docs/plans/zero-drop-v1.2-upgrade-recommendations.md` (v1.2 structural upgrade recap + future recommendations)
 
 ### Security Notes (Critical)
 
@@ -147,6 +156,10 @@ If any answer is "no", fix it before ending the session.
 - **Memory hygiene**: All payload buffers zeroed after print job completion
 - **Rate limiting**: Built-in per-IP sliding window (5 req/hr default). Admin login rate-limited separately. Deploy behind a reverse proxy for production TLS and advanced rate limiting.
 - **Web Crypto API**: Browser-native encryption, no external libraries
+- **Security headers (v1.2)**: CSP (`default-src 'self'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy` set on every response
+- **Request logging (v1.2)**: Every HTTP request logged with method, path, status, duration, and unique request ID via RequestLogger middleware
+- **Gzip compression (v1.2)**: API responses compressed automatically when client supports `Accept-Encoding: gzip`
+- **HTTP timeouts (v1.2)**: ReadTimeout (10s), WriteTimeout (15s), IdleTimeout (60s) on both HTTP and TLS servers
 
 ### Development Commands
 

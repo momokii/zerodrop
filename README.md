@@ -49,6 +49,11 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 - **Offline Decryption** — Recipients use `static/reader.html` with jsQR camera scanning and real X25519 ECDH + AES-256-GCM decryption — no external dependencies, no network calls.
 - **Asynchronous Print Spooler** — Buffered Go channel worker pool with retry logic (3 attempts, exponential backoff) and graceful shutdown draining.
 - **Hardware Abstraction** — Supports Mock Printer (stdout logging) and USB Printer (auto-detection of 10+ models with graceful fallback).
+- **Security Headers** — CSP (`default-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, and `X-XSS-Protection` set on every response.
+- **Request Logging** — Every HTTP request logged with method, path, status code, duration, and request ID via the `RequestLogger` middleware.
+- **Gzip Compression** — API responses compressed automatically when the client supports `Accept-Encoding: gzip`, reducing JSON payload size by ~80%.
+- **Enhanced Health Endpoint** — `GET /health` returns version, uptime (RFC3339 start time), goroutine count, and memory statistics (alloc, sys, GC cycles) for operational monitoring.
+- **HTTP Server Timeouts** — ReadTimeout (10s), WriteTimeout (15s), and IdleTimeout (60s) applied to both HTTP and TLS servers to prevent slow-client attacks and hung connections.
 - **Production-Grade Infrastructure** — Docker Compose deployment with resource limits, health checks, and secure defaults.
 - **Dark Mode UI** — Modern React frontend with shadcn/ui components and Tailwind CSS, supporting both light and dark themes.
 
@@ -69,15 +74,20 @@ Encrypt sensitive data in your browser using Web Crypto API, transmit it to a se
 └─────────────┼────────────────────────────────────────┘
               │ Encrypted ciphertext (server cannot read)
               ▼
-┌──────────────────────────────────────────────────────┐
-│  Go Server (port 8080)                                │
-│                                                        │
-│  ┌────────┐  ┌────────┐  ┌────────┐  ┌────────────┐ │
-│  │  API   │  │Spooler │  │Printer │  │Observability│ │
-│  │ /key   │─▶│ channel│─▶│  impl  │  │  Logger     │ │
-│  │ /drop  │  │  queue │  │(mock  │  │  Shutdown   │ │
-│  │ /health│  │        │  │ /usb)  │  │  Handler    │ │
-│  └────────┘  └────────┘  └────────┘  └────────────┘ │
+┌──────────────────────────────────────────────────────────┐
+│  Go Server (port 8080)                                    │
+│                                                          │
+│  ┌──────────────────────────────────────────────────┐    │
+│  │  Middleware Chain                                  │    │
+│  │  RequestID → SecurityHeaders → Gzip → Logger → CORS │    │
+│  └────────────────────┬─────────────────────────────┘    │
+│                       │                                  │
+│  ┌────────┐  ┌────────┐  ┌────────┐  ┌────────────┐    │
+│  │  API   │  │Spooler │  │Printer │  │Observability│    │
+│  │ /key   │─▶│ channel│─▶│  impl  │  │  Logger     │    │
+│  │ /drop  │  │  queue │  │(mock  │  │  Shutdown   │    │
+│  │ /health│  │        │  │ /usb)  │  │  Handler    │    │
+│  └────────┘  └────────┘  └────────┘  └────────────┘    │
 │                                                        │
 │  ┌──────────────────────────────────────────────────┐ │
 │  │  Crypto (server-side)                             │ │
@@ -428,13 +438,20 @@ Submits an encrypted payload for printing as a QR code.
 
 ### `GET /health`
 
-Returns the server health status, including printer information.
+Returns the server health status, including version, uptime, runtime metrics, and printer information.
 
 **Response:**
 ```json
 {
   "status": "healthy",
   "service": "zerodrop-terminal",
+  "version": "1.2.0",
+  "uptime": "2h45m10s",
+  "started_at": "2026-06-23T10:00:00Z",
+  "goroutines": 8,
+  "memory_alloc": 4194304,
+  "memory_sys": 12582912,
+  "gc_cycles": 42,
   "printer": {
     "type": "mock",
     "available": true,
@@ -446,6 +463,15 @@ Returns the server health status, including printer information.
 The `printer` object varies by printer type:
 - **MockPrinter**: `type: "mock"`, `available`, `status`
 - **USBPrinter**: `type: "usb"`, `available`, `device_path`, `model`, `mode`
+
+The runtime fields enable operational monitoring:
+- `version` — Server version (bumped with each release)
+- `uptime` — Human-readable duration since server start
+- `started_at` — RFC3339 timestamp of when the server started
+- `goroutines` — Current number of goroutines (leak detection)
+- `memory_alloc` — Currently allocated heap memory in bytes
+- `memory_sys` — Total memory obtained from OS in bytes
+- `gc_cycles` — Number of completed garbage collection cycles
 
 **Status codes:**
 - `200` — Server is healthy and printer is available
@@ -602,6 +628,11 @@ The shift from ephemeral keys (v1.0 — new keys on every restart) to persistent
 | Read-only filesystem | Container root filesystem can be set read-only in production |
 | No-new-privileges | Docker security option prevents privilege escalation |
 | Resource limits | Production deploy: 0.5 CPU, 128MB memory limit |
+| Security headers | CSP (`default-src 'self'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy` set on every response |
+| Request logging | Every HTTP request logged with method, path, status, duration, and request ID |
+| Gzip compression | API responses compressed automatically when client supports `Accept-Encoding: gzip` |
+| HTTP timeouts | ReadTimeout (10s), WriteTimeout (15s), IdleTimeout (60s) to prevent slow-client attacks |
+| Enhanced health endpoint | Exposes version, uptime, goroutines, memory stats for operational monitoring |
 | Graceful shutdown | 30-second drain timeout for print queue completion |
 
 ### Threat Model

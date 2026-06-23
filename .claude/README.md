@@ -6,7 +6,7 @@
 
 **Tech stack:** Go backend, React + Vite + shadcn/ui frontend, Docker Compose, Curve25519 cryptography.
 
-**Current phase:** **v1.1 Complete** — Admin Dashboard & Key Persistence (all 7 tasks implemented)
+**Current phase:** **v1.2 Complete** — v1.1 Admin Dashboard & Key Persistence + v1.2 Structural & Security Upgrades
 
 ---
 
@@ -50,7 +50,10 @@ docs/
 ├── prd/
 │   └── PRD-001-zerodrop-terminal-v1.0.md  # Complete PRD for v1.0
 ├── plans/
-│   └── v1.1-admin-dashboard.md  # v1.1 implementation plan (7 tasks)
+│   ├── v1.1-admin-dashboard.md  # v1.1 implementation plan (7 tasks)
+│   └── zero-drop-v1.2-upgrade-recommendations.md  # v1.2 structural upgrade recap + recommendations
+├── api/
+│   └── openapi.yaml           # OpenAPI 3.0 specification for all endpoints
 └── OVERVIEW.md             # Simple explanation for stakeholders
 
 pkg/                          # Go packages (M-01 through M-04 complete)
@@ -107,13 +110,14 @@ docker-compose.prod.yml       # ✅ Production overrides
 
 ## Current Task State
 
-- **Status file:** `state/CURRENT_STATUS.md` — **v1.1 Complete** — Admin Dashboard & Key Persistence implemented
-- **Task backlog:** `state/TASK_QUEUE.md` — 5 v1.0 milestones (ALL DONE ✅) + 7 v1.1 tasks (ALL DONE ✅)
-- **Decision history:** `state/DECISIONS_LOG.md` — 38 decisions logged (31 v1.0 + 7 v1.1)
+- **Status file:** `state/CURRENT_STATUS.md` — **v1.2 Complete** — v1.1 Admin Dashboard + v1.2 Structural & Security Upgrades implemented
+- **Task backlog:** `state/TASK_QUEUE.md` — 5 v1.0 milestones (ALL DONE ✅) + 7 v1.1 tasks (ALL DONE ✅) + v1.2 structural upgrade (ALL DONE ✅)
+- **Decision history:** `state/DECISIONS_LOG.md` — 40+ decisions logged (v1.0 + v1.1 + v1.2)
 - **PRD:** `docs/prd/PRD-001-zerodrop-terminal-v1.0.md` — updated with 400-char limit, FR-024 split, FR-030/FR-034 corrections
 - **v1.1 Plan:** `docs/plans/v1.1-admin-dashboard.md` — 7 tasks (ALL IMPLEMENTED ✅)
+- **v1.2 Recommendations:** `docs/plans/zero-drop-v1.2-upgrade-recommendations.md` — Structural upgrade recap + future recommendations
 
-**Project Status:** ZeroDrop Terminal v1.1 is **COMPLETE** on `feature/v1.1-admin-dashboard` branch. 43 tests passing, frontend builds successfully.
+**Project Status:** ZeroDrop Terminal v1.2 is **COMPLETE** on `main` branch. 120+ tests passing (80 functional + 40 security), 50/50 security checks pass, frontend builds successfully.
 
 ---
 
@@ -154,6 +158,12 @@ This is not optional. Keeping `.claude/` accurate is part of every task.
 - **Health check 503**: `/health` returns 503 when printer unavailable via `IsAvailable()`
 - **Graceful shutdown**: 30-second spooler drain timeout (configurable)
 - **USB auto-detection**: Scans for 10+ thermal printer models, falls back to Mock Printer
+- **Middleware chain**: RequestID → SecurityHeaders → Gzip → RequestLogger → CORS applied globally
+- **Security headers**: CSP (`default-src 'self'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy` on every response
+- **Request logging**: Every request logged with method, path, status, duration, and request ID
+- **Gzip compression**: API responses compressed automatically (~80% reduction on JSON)
+- **HTTP timeouts**: ReadTimeout (10s), WriteTimeout (15s), IdleTimeout (60s) on both HTTP and TLS servers
+- **Enhanced health endpoint**: Returns version, uptime, goroutines, memory stats for operational monitoring
 
 ### Tech Stack
 
@@ -173,7 +183,7 @@ This is not optional. Keeping `.claude/` accurate is part of every task.
 | Admin Dashboard | React SPA at /admin, session auth, printer mgmt, key mgmt | ✅ v1.1 |
 | Web Crypto | X25519 ECDH + AES-256-GCM encryption/decryption in browser | ✅ Implemented |
 | Offline Decoding | jsQR v1.4.0 (local file, no network) | ✅ Implemented |
-| Testing | Go testing framework + Mock Printer | ✅ 43 tests passing |
+| Testing | Go testing framework + Mock Printer | ✅ 120+ tests passing (80 functional + 40 security) |
 | Hardware | 58mm thermal printer (ESC/POS), USB | ✅ Supported |
 
 ### Test Coverage

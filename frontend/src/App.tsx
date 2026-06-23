@@ -25,7 +25,6 @@ function App() {
   const [keyFingerprint, setKeyFingerprint] = useState("");
   const [status, setStatus] = useState<Status | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isHealthy, setIsHealthy] = useState(false);
   const [printerInfo, setPrinterInfo] = useState<string>("");
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -57,7 +56,6 @@ function App() {
         // encrypt a message while the printer recovers.
         try {
           const health = await checkHealth();
-          setIsHealthy(true);
           if (health.printer) {
             const available = health.printer.available;
             setPrinterInfo(`${health.printer.type} printer (${available ? "available" : "unavailable"})`);

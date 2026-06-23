@@ -25,7 +25,7 @@ export async function generateKeyPair(): Promise<KeyPair> {
     { name: "X25519" },
     true,
     ["deriveKey", "deriveBits"]
-  );
+  ) as CryptoKeyPair;
 
   const publicKeyData = await window.crypto.subtle.exportKey("spki", keyPair.publicKey);
   const publicKeyPEM = arrayBufferToPEM(publicKeyData, "PUBLIC KEY");
@@ -91,7 +91,7 @@ export async function encryptData(
     { name: "X25519" },
     true,
     ["deriveBits"]
-  );
+  ) as CryptoKeyPair;
 
   // ECDH: derive shared secret (256 bits / 32 bytes)
   const sharedSecret = await window.crypto.subtle.deriveBits(
